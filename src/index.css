@@ -15,6 +15,20 @@
 html, body {
   overscroll-behavior-y: none !important;
   overscroll-behavior-x: none !important;
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+#root {
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+/* Hide scrollbar for clean modals */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 /* Custom scrollbar styling to stay clean */
@@ -48,4 +62,28 @@ button, a {
 /* Ensure large amounts, headings, and bold text prioritize Outfit & Plus Jakarta Sans for traditional, highly legible numbers and text */
 h1, h2, h3, h4, .text-5xl, .text-4xl, .text-3xl, .text-2xl, .text-xl, .text-lg, .font-bold, .font-extrabold, .font-black {
   font-family: "Outfit", "Plus Jakarta Sans", "Hind Siliguri", "Noto Sans Bengali", sans-serif !important;
+}
+
+/* 
+  Hardware-accelerated CSS animations for zero-lag mobile rendering 
+  Used instead of JS-based framer-motion to bypass the main thread.
+*/
+@keyframes smoothReveal {
+  0% { opacity: 0; transform: translateY(15px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-reveal {
+  animation: smoothReveal 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+  transform: translateZ(0);
+}
+
+@keyframes slideUpModal {
+  0% { opacity: 0; transform: translateY(100%); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slideUpModal 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+  transform: translateZ(0);
 }
