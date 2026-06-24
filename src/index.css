@@ -1,0 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Hind+Siliguri:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", "Plus Jakarta Sans", "Hind Siliguri", "Noto Sans Bengali", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-zinc-55: #fafafb;
+  --color-zinc-150: #ededf0;
+  --color-zinc-850: #202024;
+}
+
+@variant dark (&:where(.dark, .dark *));
+
+html, body {
+  overscroll-behavior-y: none !important;
+  overscroll-behavior-x: none !important;
+}
+
+/* Custom scrollbar styling to stay clean */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.5);
+}
+
+/* Prevent text selection highlight issues on quick double-taps for tablet devices */
+.no-select {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Make sure buttons/clickable elements have clean taps on mobile device */
+button, a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Ensure large amounts, headings, and bold text prioritize Outfit & Plus Jakarta Sans for traditional, highly legible numbers and text */
+h1, h2, h3, h4, .text-5xl, .text-4xl, .text-3xl, .text-2xl, .text-xl, .text-lg, .font-bold, .font-extrabold, .font-black {
+  font-family: "Outfit", "Plus Jakarta Sans", "Hind Siliguri", "Noto Sans Bengali", sans-serif !important;
+}

@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents the user's dashboard preferences and settings.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique user ID" },
+        "displayName": { "type": "string", "description": "Optional display name" },
+        "email": { "type": "string", "description": "The user email" },
+        "theme": { "type": "string", "enum": ["light", "dark"], "description": "UI Theme preference" },
+        "dailyReminderTime": { "type": "string", "description": "Time of day for due reminders, e.g. 09:00" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last changed timestamp" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "A customer who owes or has paid dues.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique Customer ID" },
+        "userId": { "type": "string", "description": "User ID of the business owner" },
+        "name": { "type": "string", "description": "Full name of the customer" },
+        "phone": { "type": "string", "description": "Phone number for notifications/reminders" },
+        "outstandingDue": { "type": "number", "description": "Current unpaid total due amount" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last modified timestamp" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["id", "userId", "name", "outstandingDue", "createdAt", "updatedAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A ledger record tracking an added due or a payment received.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique transaction ID" },
+        "userId": { "type": "string", "description": "User ID of the business owner" },
+        "customerId": { "type": "string", "description": "Associated customer ID" },
+        "customerName": { "type": "string", "description": "Denormalized customer name for easier querying" },
+        "type": { "type": "string", "enum": ["due", "payment"], "description": "Record type" },
+        "amount": { "type": "number", "description": "Transaction value" },
+        "description": { "type": "string", "description": "Optional notes or details" },
+        "date": { "type": "string", "format": "date-time", "description": "Transaction date" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "System write timestamp" }
+      },
+      "required": ["id", "userId", "customerId", "customerName", "type", "amount", "date", "createdAt"]
+    },
+    "Reminder": {
+      "title": "Reminder",
+      "description": "A custom reminder to follow up on due payments.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique reminder ID" },
+        "userId": { "type": "string", "description": "User ID of the scheduler" },
+        "customerId": { "type": "string", "description": "Associated customer ID" },
+        "customerName": { "type": "string", "description": "Customer name" },
+        "notes": { "type": "string", "description": "Message or follow up topic" },
+        "dueDate": { "type": "string", "format": "date-time", "description": "Scheduled pay-by date" },
+        "active": { "type": "boolean", "description": "Whether the reminder is active" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["id", "userId", "customerId", "customerName", "active", "dueDate", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User settings and profile"
+    },
+    "/users/{userId}/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Customer list managed by the user"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Transaction history ledger"
+    },
+    "/users/{userId}/reminders/{reminderId}": {
+      "schema": "Reminder",
+      "description": "Follow-up alerts for dues"
+    }
+  }
+}
