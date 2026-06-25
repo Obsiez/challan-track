@@ -285,8 +285,9 @@ export default function CustomerManager({
  exit={{ opacity: 0, height: 0 }}
  transition={{ duration: 0.2, ease: "easeInOut" }}
  onSubmit={handleCreateCustomer}
- className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-4 shadow-md overflow-hidden"
+ className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-md overflow-hidden"
  >
+ <div className="p-5 space-y-4">
  <div className="text-base font-bold text-zinc-800 dark:text-white">{t.newAccountDetails}</div>
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
  <div className="space-y-1">
@@ -339,6 +340,7 @@ export default function CustomerManager({
  t.saveAndOpen
  )}
  </button>
+ </div>
  </div>
  </motion.form>
  )}
@@ -903,7 +905,7 @@ export default function CustomerManager({
  {/* Edit Transaction Modal */}
  <AnimatePresence>
   {editingTx && (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80">
       <motion.div
         initial={{ opacity: 0, y: 50 }}
         animate={{ opacity: 1, y: 0 }}
@@ -963,7 +965,7 @@ export default function CustomerManager({
  {/* Delete Transaction Modal */}
  <AnimatePresence>
   {deletingTx && (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80">
       <motion.div
         initial={{ opacity: 0, y: 50 }}
         animate={{ opacity: 1, y: 0 }}
