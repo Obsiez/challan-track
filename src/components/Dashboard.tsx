@@ -25,7 +25,7 @@ export default function Dashboard({
  
  // Calculate statistics
  const stats = useMemo(() => {
- const totalOutstanding = customers.reduce((sum, c) => sum + (c.outstandingDue || 0), 0);
+ const totalOutstanding = customers.reduce((sum, c) => sum + (c.outstandingDue > 0 ? c.outstandingDue : 0), 0);
  const activeDebtorsCount = customers.filter(c => c.outstandingDue > 0).length;
 
  const midnight = new Date();
@@ -83,7 +83,7 @@ export default function Dashboard({
  </div>
  </div>
 
- <div className="grid grid-cols-2 gap-4 mt-8 pt-6 border-t border-zinc-100 dark:border-zinc-800/50 relative z-10">
+ <div className="grid grid-cols-2 gap-4 mt-8 pt-6 border-t-2 border-dotted border-zinc-300 dark:border-zinc-700 relative z-10">
  <div className="flex items-center gap-3">
  <div className="p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800/50 text-amber-600 dark:text-amber-500">
  <Users className="w-5 h-5" />

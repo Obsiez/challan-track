@@ -87,3 +87,12 @@ h1, h2, h3, h4, .text-5xl, .text-4xl, .text-3xl, .text-2xl, .text-xl, .text-lg, 
   will-change: transform, opacity;
   transform: translateZ(0);
 }
+
+* {
+  user-select: none;
+  -webkit-user-select: none;
+}
+input, textarea, select, [contenteditable] {
+  user-select: auto;
+  -webkit-user-select: auto;
+}

@@ -26,7 +26,7 @@ export const translations = {
  alertsDesc: "Designed with huge clear buttons specifically for non-tech-savvy users and parents.",
  googleSignIn: "Fast Sign-In with Google",
  guestSignIn: "Start Instantly (Instant Guest Mode)",
- offlineNotice: "By accessing Easy Due Tracker, you securely store calculations locally. Backups are private and encrypted for your device.",
+ offlineNotice: "By accessing Challan Track, you securely store calculations locally. Backups are private and encrypted for your device.",
 
  // Dashboard Screen
  totalOutstanding: "Total Outstanding",

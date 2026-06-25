@@ -59,7 +59,7 @@ export default function SettingsManager({
  const url = URL.createObjectURL(blob);
  const a = document.createElement('a');
  a.href = url;
- a.download = `EasyDueTracker_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+ a.download = `ChallanTrack_Backup_${new Date().toISOString().slice(0, 10)}.json`;
  document.body.appendChild(a);
  a.click();
  document.body.removeChild(a);
@@ -122,7 +122,7 @@ export default function SettingsManager({
  <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
  {lang === 'bn' 
  ? 'ইজি ডিউ ট্র্যাকারকে আপনার সুবিধাজনক আলোতে রূপ দিন। কাজের ক্ষেত্র উজ্জ্বল রোদে বা রাতে চোখের সুরক্ষায় আরামদায়ক থিম ব্যবহার করুন।' 
- : 'Tailor Easy Due Tracker to the most comforting view. Perfect for outdoor sunny fields or dark indoor offices.'}
+ : 'Tailor Challan Track to the most comforting view. Perfect for outdoor sunny fields or dark indoor offices.'}
  </p>
 
  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">

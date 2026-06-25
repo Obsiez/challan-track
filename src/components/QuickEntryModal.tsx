@@ -38,6 +38,7 @@ export default function QuickEntryModal({
  const [customerNameInput, setCustomerNameInput] = useState('');
  const [customerPhoneInput, setCustomerPhoneInput] = useState('');
  const [showAddNewCustomer, setShowAddNewCustomer] = useState(false);
+ const [showAllCustomers, setShowAllCustomers] = useState(false);
  
  const [amountInput, setAmountInput] = useState('');
  const [description, setDescription] = useState('');
@@ -53,6 +54,7 @@ export default function QuickEntryModal({
  setDescription('');
  setSearchQuery('');
  setShowAddNewCustomer(false);
+ setShowAllCustomers(false);
  }
  }, [isOpen, preselectedCustomerId]);
 
@@ -67,8 +69,10 @@ export default function QuickEntryModal({
 
  // Handle immediate selection
  const filteredCustomers = searchQuery.trim() === '' 
- ? customers.slice(0, 5) // Show top 5 recent customer choices initially for speedy pick
+ ? customers 
  : customers.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+ const currentCustomer = customers.find(c => c.id === selectedCustomerId);
 
  const handleQuickAddAmount = (add: number) => {
  const cleaned = amountInput.replace(/,/g, '');
@@ -253,32 +257,49 @@ export default function QuickEntryModal({
  />
  </div>
 
- {/* Customer Quick Grid */}
- <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
- {filteredCustomers.map(c => (
- <button
- key={c.id}
- type="button"
- onClick={() => setSelectedCustomerId(selectedCustomerId === c.id ? '' : c.id)}
- className={`p-3 text-left rounded-xl border transition-all text-sm truncate flex items-center justify-between cursor-pointer ${
- selectedCustomerId === c.id
- ? type === 'due'
- ? 'bg-rose-600 text-white border-rose-600 font-bold dark:bg-rose-500 dark:text-zinc-950 dark:border-rose-500'
- : 'bg-emerald-600 text-white border-emerald-600 font-bold dark:bg-emerald-500 dark:text-zinc-950 dark:border-emerald-500'
- : 'bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
- }`}
- >
- <span className="truncate">{c.name}</span>
- {selectedCustomerId === c.id && <Check className="w-4 h-4 shrink-0 label-icon ml-1" />}
- </button>
- ))}
+ {/* Customer Names Grid */}
+  <div className="relative pt-1">
+    <div className={`grid grid-cols-2 gap-2 ${!showAllCustomers ? 'grid-rows-3' : ''}`}>
+      {(showAllCustomers ? filteredCustomers : filteredCustomers.slice(0, 6)).map(c => (
+      <button
+      key={c.id}
+      type="button"
+      onClick={() => setSelectedCustomerId(selectedCustomerId === c.id ? '' : c.id)}
+      className={`p-3 text-left rounded-xl border transition-all text-sm truncate flex items-center justify-between cursor-pointer ${
+      selectedCustomerId === c.id
+      ? type === 'due'
+      ? 'bg-rose-600 text-white border-rose-600 font-bold dark:bg-rose-500 dark:text-zinc-950 dark:border-rose-500'
+      : 'bg-emerald-600 text-white border-emerald-600 font-bold dark:bg-emerald-500 dark:text-zinc-950 dark:border-emerald-500'
+      : 'bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
+      }`}
+      >
+      <span className="truncate">{c.name}</span>
+      {selectedCustomerId === c.id && <Check className="w-4 h-4 shrink-0 label-icon ml-1" />}
+      </button>
+      ))}
 
- {filteredCustomers.length === 0 && (
- <div className="col-span-2 text-center py-4 bg-zinc-50 dark:bg-zinc-850 rounded-xl text-zinc-500 text-xs">
- {lang === 'bn' ? 'কোনো গ্রাহক মেলেনি। উপরে "+ নতুন গ্রাহক যোগ" চাপুন।' : 'No customer matches. Click "+ Add New Customer" above.'}
- </div>
- )}
- </div>
+      {filteredCustomers.length === 0 && (
+      <div className="col-span-2 w-full text-center py-4 bg-zinc-50 dark:bg-zinc-850 rounded-xl text-zinc-500 text-xs shrink-0">
+      {lang === 'bn' ? 'কোনো গ্রাহক মেলেনি। উপরে "+ নতুন গ্রাহক যোগ" চাপুন।' : 'No customer matches. Click "+ Add New Customer" above.'}
+      </div>
+      )}
+    </div>
+
+    {filteredCustomers.length > 6 && (
+      <div className="flex justify-end mt-3 pr-1">
+        <button
+          type="button"
+          onClick={() => setShowAllCustomers(!showAllCustomers)}
+          className="text-xs font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 transition-colors flex items-center gap-1 cursor-pointer"
+        >
+          {showAllCustomers 
+            ? (lang === 'bn' ? 'কম দেখুন' : 'Show less') 
+            : (lang === 'bn' ? 'আরও দেখুন' : 'Show more')}
+          <svg className={`w-3.5 h-3.5 transition-transform ${showAllCustomers ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+        </button>
+      </div>
+    )}
+  </div>
  </div>
  ) : (
  /* INLINE NEW CUSTOMER FORM */
@@ -333,6 +354,26 @@ export default function QuickEntryModal({
  required
  />
  </div>
+
+ {type === 'payment' && currentCustomer && (currentCustomer as any).outstandingDue > 0 && (
+    <div className="flex items-center gap-2 mt-3 p-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-xl border border-zinc-200 dark:border-zinc-800">
+      <input
+        type="checkbox"
+        id="payFullDue"
+        className="w-4 h-4 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500"
+        onChange={(e) => {
+          if (e.target.checked) {
+            setAmountInput(formatIndianNumberString((currentCustomer as any).outstandingDue.toString()));
+          } else {
+            setAmountInput('');
+          }
+        }}
+      />
+      <label htmlFor="payFullDue" className="text-xs font-bold text-zinc-600 dark:text-zinc-300">
+        {lang === 'bn' ? 'সম্পূর্ণ বকেয়া পরিশোধ করুন' : 'Settle complete due'} (৳{formatNumber((currentCustomer as any).outstandingDue, lang)})
+      </label>
+    </div>
+  )}
 
  {/* Speedy Pad helpers */}
  <div className="flex flex-wrap gap-1.5 pt-1">

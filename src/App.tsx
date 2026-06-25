@@ -64,15 +64,17 @@ export default function App() {
  
  window.history.replaceState({ tab: 'home', customerId: null, quickEntry: false }, '', window.location.pathname + '?tab=home');
 
- const handlePopState = (e: PopStateEvent) => {
- if (e.state) {
- setCurrentTab(e.state.tab || 'home');
- setSelectedCustomerIdForDetail(e.state.customerId || null);
- setIsQuickEntryOpen(e.state.quickEntry || false);
- } else {
- setIsQuickEntryOpen(false);
- }
- };
+  const handlePopState = (e: PopStateEvent) => {
+    // If the back button is pressed, ensure dialogs close
+    setAppDialog(null);
+    if (e.state) {
+      setCurrentTab(e.state.tab || 'home');
+      setSelectedCustomerIdForDetail(e.state.customerId || null);
+      setIsQuickEntryOpen(e.state.quickEntry || false);
+    } else {
+      setIsQuickEntryOpen(false);
+    }
+  };
  window.addEventListener('popstate', handlePopState);
  return () => window.removeEventListener('popstate', handlePopState);
  }, []);
@@ -121,7 +123,7 @@ export default function App() {
  if (isGuest) {
  setUser({
  uid: 'local-guest-session',
- email: 'guest@easyduetracker.local',
+ email: 'guest@challantrack.local',
  displayName: 'Guest Owner'
  } as any);
  setAuthLoading(false);
@@ -154,6 +156,8 @@ export default function App() {
  createCustomer,
  updateCustomerDetails,
  addTransaction,
+ editTransaction,
+ deleteTransaction,
  addReminder,
  toggleReminder,
  deleteReminder,
@@ -236,16 +240,21 @@ export default function App() {
  };
 
  const triggerConfirm = (title: string, message: string, onConfirmCallback: () => void) => {
+ window.history.pushState({ ...window.history.state, dialogOpen: true }, '', window.location.href);
  setAppDialog({
  isOpen: true,
  type: 'confirm',
  title,
  message,
  onConfirm: () => {
+ if (window.history.state?.dialogOpen) window.history.back();
  onConfirmCallback();
  setAppDialog(null);
  },
- onCancel: () => setAppDialog(null)
+ onCancel: () => {
+ if (window.history.state?.dialogOpen) window.history.back();
+ setAppDialog(null);
+ }
  });
  };
 
@@ -287,7 +296,7 @@ export default function App() {
  localStorage.setItem('local_guest_session', 'true');
  setUser({
  uid: 'local-guest-session',
- email: 'guest@easyduetracker.local',
+ email: 'guest@challantrack.local',
  displayName: 'Guest Owner'
  } as any);
  };
@@ -551,6 +560,8 @@ export default function App() {
  transactions={transactions}
  createCustomer={createCustomer}
  addTransaction={addTransaction}
+ editTransaction={editTransaction}
+ deleteTransaction={deleteTransaction}
  updateCustomerDetails={updateCustomerDetails}
  deleteCustomer={deleteCustomer}
  selectedCustomerId={selectedCustomerIdForDetail}

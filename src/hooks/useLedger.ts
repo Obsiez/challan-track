@@ -76,7 +76,7 @@ export function useLedger(userId: string | undefined) {
         sessionStorage.removeItem('login_intent_theme');
         setSettings({
           uid: userId,
-          email: auth.currentUser?.email || 'guest@easyduetracker.local',
+          email: auth.currentUser?.email || 'guest@challantrack.local',
           theme: loginTheme as 'light' | 'dark',
           dailyReminderTime: '09:00',
           createdAt: new Date().toISOString(),
@@ -286,7 +286,7 @@ export function useLedger(userId: string | undefined) {
  if (!userId) return;
  const updatedSettings = settings ? { ...settings, theme, updatedAt: new Date() } : {
  uid: userId,
- email: auth.currentUser?.email || 'guest@easyduetracker.local',
+ email: auth.currentUser?.email || 'guest@challantrack.local',
  theme,
  dailyReminderTime: '09:00',
  createdAt: new Date(),
@@ -315,7 +315,7 @@ export function useLedger(userId: string | undefined) {
  if (!userId) return;
  const updatedSettings = settings ? { ...settings, dailyReminderTime: time, updatedAt: new Date() } : {
  uid: userId,
- email: auth.currentUser?.email || 'guest@easyduetracker.local',
+ email: auth.currentUser?.email || 'guest@challantrack.local',
  theme: 'light' as const,
  dailyReminderTime: time,
  createdAt: new Date(),
@@ -615,6 +615,96 @@ export function useLedger(userId: string | undefined) {
  }
  };
 
+  // Edit a transaction
+  const editTransaction = async (
+    transactionId: string,
+    newType: 'due' | 'payment',
+    newAmount: number,
+    newDescription: string
+  ) => {
+    if (!userId) return;
+
+    const tx = transactions.find(t => t.id === transactionId);
+    if (!tx) return;
+
+    const diffOld = tx.type === 'due' ? -tx.amount : tx.amount; // reverse old effect
+    const diffNew = newType === 'due' ? newAmount : -newAmount; // apply new effect
+    const netDiff = diffOld + diffNew;
+
+    const updatedTxs = transactions.map(t => 
+      t.id === transactionId 
+        ? { ...t, type: newType, amount: newAmount, description: newDescription.trim() } 
+        : t
+    );
+
+    const updatedCustomers = customers.map(c => 
+      c.id === tx.customerId 
+        ? { ...c, outstandingDue: c.outstandingDue + netDiff, updatedAt: new Date() }
+        : c
+    );
+
+    setTransactions(updatedTxs);
+    setCustomers(updatedCustomers);
+    saveLocalTransactions(updatedTxs);
+    saveLocalCustomers(updatedCustomers);
+
+    if (userId === 'local-guest-session' || isOfflineFallback) return;
+
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'users', userId, 'transactions', transactionId), {
+      type: newType,
+      amount: newAmount,
+      description: newDescription.trim()
+    });
+    batch.update(doc(db, 'users', userId, 'customers', tx.customerId), {
+      outstandingDue: increment(netDiff),
+      updatedAt: serverTimestamp()
+    });
+
+    try {
+      await batch.commit();
+    } catch (err) {
+      console.warn("Firestore editTransaction failed, saved locally:", err);
+    }
+  };
+
+  // Delete a transaction
+  const deleteTransaction = async (transactionId: string) => {
+    if (!userId) return;
+
+    const tx = transactions.find(t => t.id === transactionId);
+    if (!tx) return;
+
+    const diff = tx.type === 'due' ? -tx.amount : tx.amount;
+
+    const updatedTxs = transactions.filter(t => t.id !== transactionId);
+    const updatedCustomers = customers.map(c => 
+      c.id === tx.customerId 
+        ? { ...c, outstandingDue: c.outstandingDue + diff, updatedAt: new Date() }
+        : c
+    );
+
+    setTransactions(updatedTxs);
+    setCustomers(updatedCustomers);
+    saveLocalTransactions(updatedTxs);
+    saveLocalCustomers(updatedCustomers);
+
+    if (userId === 'local-guest-session' || isOfflineFallback) return;
+
+    const batch = writeBatch(db);
+    batch.delete(doc(db, 'users', userId, 'transactions', transactionId));
+    batch.update(doc(db, 'users', userId, 'customers', tx.customerId), {
+      outstandingDue: increment(diff),
+      updatedAt: serverTimestamp()
+    });
+
+    try {
+      await batch.commit();
+    } catch (err) {
+      console.warn("Firestore deleteTransaction failed, saved locally:", err);
+    }
+  };
+
  return {
  customers,
  transactions,
@@ -627,6 +717,8 @@ export function useLedger(userId: string | undefined) {
  createCustomer,
  updateCustomerDetails,
  addTransaction,
+ editTransaction,
+ deleteTransaction,
  addReminder,
  toggleReminder,
  deleteReminder,

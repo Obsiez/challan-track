@@ -21,6 +21,8 @@ interface CustomerManagerProps {
  fallbackCustomerInfo?: { name: string; phone: string }
  ) => Promise<void>;
  updateCustomerDetails: (customerId: string, name: string, phone: string) => Promise<void>;
+ editTransaction?: (transactionId: string, newType: 'due' | 'payment', newAmount: number, newDescription: string) => Promise<void>;
+ deleteTransaction?: (transactionId: string) => Promise<void>;
  deleteCustomer: (id: string) => Promise<void>;
  selectedCustomerId: string | null;
  setSelectedCustomerId: (id: string | null) => void;
@@ -34,6 +36,8 @@ export default function CustomerManager({
  createCustomer,
  addTransaction,
  updateCustomerDetails,
+ editTransaction,
+ deleteTransaction,
  deleteCustomer,
  selectedCustomerId,
  setSelectedCustomerId,
@@ -55,7 +59,7 @@ export default function CustomerManager({
  const [actionDesc, setActionDesc] = useState('');
  const [txSubmitting, setTxSubmitting] = useState(false);
 
- const [filterStatus, setFilterStatus] = useState<'all' | 'due' | 'settled'>('all');
+ const [filterStatus, setFilterStatus] = useState<'all' | 'due' | 'settled' | 'overpaid'>('all');
 
  // Editing state for customer details
  const [isEditingCustomer, setIsEditingCustomer] = useState(false);
@@ -66,6 +70,46 @@ export default function CustomerManager({
 
  // Selected message template for reminder alerts
  const [selectedTemplate, setSelectedTemplate] = useState<1 | 2 | 3>(1);
+
+ // Transaction Edit/Delete Modal states
+ const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+ const [editTxAmount, setEditTxAmount] = useState('');
+ const [editTxDesc, setEditTxDesc] = useState('');
+ const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
+
+ // Handle history for modals (mobile back gesture)
+ React.useEffect(() => {
+   const handlePopState = () => {
+     if (editingTx || deletingTx) {
+       setEditingTx(null);
+       setDeletingTx(null);
+     }
+   };
+   window.addEventListener('popstate', handlePopState);
+   return () => window.removeEventListener('popstate', handlePopState);
+ }, [editingTx, deletingTx]);
+
+ const openEditTxModal = (tx: Transaction) => {
+   setEditingTx(tx);
+   setEditTxAmount(tx.amount.toString());
+   setEditTxDesc(tx.description || '');
+   window.history.pushState({ modal: 'editTx' }, '');
+ };
+
+ const openDeleteTxModal = (tx: Transaction) => {
+   setDeletingTx(tx);
+   window.history.pushState({ modal: 'deleteTx' }, '');
+ };
+
+ const closeTxModals = () => {
+   if (window.history.state?.modal === 'editTx' || window.history.state?.modal === 'deleteTx') {
+     window.history.back(); // This triggers popstate, which sets states to null
+   } else {
+     setEditingTx(null);
+     setDeletingTx(null);
+   }
+ };
+
 
  // Filter customers list
  const filteredCustomers = useMemo(() => {
@@ -81,6 +125,9 @@ export default function CustomerManager({
  }
  if (filterStatus === 'settled') {
  return c.outstandingDue === 0;
+ }
+ if (filterStatus === 'overpaid') {
+ return c.outstandingDue < 0;
  }
  return true;
  });
@@ -236,6 +283,7 @@ export default function CustomerManager({
  initial={{ opacity: 0, height: 0 }}
  animate={{ opacity: 1, height: 'auto' }}
  exit={{ opacity: 0, height: 0 }}
+ transition={{ duration: 0.2, ease: "easeInOut" }}
  onSubmit={handleCreateCustomer}
  className="bg-white dark:bg-zinc-900 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-4 shadow-md overflow-hidden"
  >
@@ -342,6 +390,17 @@ export default function CustomerManager({
  }`}
  >
  {lang === 'bn' ? 'পরিশোধিত/০ টাকা' : 'Settled (৳0)'} ({formatNumber(customers.filter(c => c.outstandingDue === 0).length, lang)})
+ </button>
+ <button
+ type="button"
+ onClick={() => setFilterStatus('overpaid')}
+ className={`px-4 py-2.5 rounded-xl font-bold transition-colors shrink-0 cursor-pointer ${
+ filterStatus === 'overpaid'
+ ? 'bg-cyan-600 text-white shadow-md'
+ : 'bg-white text-cyan-650 border border-cyan-500 dark:bg-zinc-900 dark:border-cyan-950/40 dark:text-cyan-400'
+ }`}
+ >
+ {lang === 'bn' ? 'অতিরিক্ত জমা' : 'Overpaid'} ({formatNumber(customers.filter(c => c.outstandingDue < 0).length, lang)})
  </button>
  </div>
 
@@ -777,10 +836,11 @@ export default function CustomerManager({
  <div className="divide-y divide-zinc-100 dark:divide-zinc-850">
  {selectedCustomerTransactions.map(tx => (
  <div 
- key={tx.id} 
- className="p-4 flex items-center justify-between hover:bg-zinc-50/50 dark:hover:bg-zinc-850/50 transition-colors"
- >
- <div className="flex items-center gap-3.5 min-w-0">
+  key={tx.id} 
+  className="p-4 flex flex-col hover:bg-zinc-50/50 dark:hover:bg-zinc-850/50 transition-colors group cursor-default"
+  >
+  <div className="flex items-center justify-between">
+  <div className="flex items-center gap-3.5 min-w-0">
  <div className={`p-2 rounded-lg shrink-0 ${
  tx.type === 'due' 
  ? 'bg-rose-50 dark:bg-rose-950/20 text-rose-500' 
@@ -800,11 +860,36 @@ export default function CustomerManager({
  </div>
  </div>
 
- <div className={`text-base sm:text-lg font-black shrink-0 ${
- tx.type === 'due' ? 'text-rose-600 dark:text-rose-450' : 'text-emerald-600 dark:text-emerald-400'
- }`}>
- {tx.type === 'due' ? '+' : '-'} ৳ {formatNumber(tx.amount, lang)}
- </div>
+  <div className="flex flex-col items-end shrink-0">
+  <div className={`text-base sm:text-lg font-black ${
+  tx.type === 'due' ? 'text-rose-600 dark:text-rose-450' : 'text-emerald-600 dark:text-emerald-400'
+  }`}>
+  {tx.type === 'due' ? '+' : '-'} ৳ {formatNumber(tx.amount, lang)}
+  </div>
+  <div className="flex items-center gap-2 mt-1 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+    <button 
+      onClick={(e) => {
+        e.stopPropagation();
+        openEditTxModal(tx);
+      }}
+      className="p-1.5 rounded-lg text-zinc-400 hover:text-emerald-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+      title={lang === 'bn' ? 'পরিবর্তন' : 'Edit'}
+    >
+      <Pencil className="w-4 h-4" />
+    </button>
+    <button 
+      onClick={(e) => {
+        e.stopPropagation();
+        openDeleteTxModal(tx);
+      }}
+      className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+      title={lang === 'bn' ? 'মুছুন' : 'Delete'}
+    >
+      <Trash2 className="w-4 h-4" />
+    </button>
+  </div>
+  </div>
+  </div>
  </div>
  ))}
  </div>
@@ -814,6 +899,112 @@ export default function CustomerManager({
  
  </motion.div>
  )}
+
+ {/* Edit Transaction Modal */}
+ <AnimatePresence>
+  {editingTx && (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        transition={{ duration: 0.15 }}
+        className="bg-white dark:bg-zinc-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-extrabold text-zinc-900 dark:text-white">
+            {lang === 'bn' ? 'লেনদেন পরিবর্তন' : 'Edit Transaction'}
+          </h3>
+          <button onClick={closeTxModals} className="p-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-full cursor-pointer">
+            <X className="w-5 h-5 text-zinc-500 dark:text-zinc-400" />
+          </button>
+        </div>
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-zinc-500 uppercase">{t.amount} (৳)</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={editTxAmount}
+              onChange={(e) => {
+                const clean = e.target.value.replace(/[^0-9.]/g, '');
+                setEditTxAmount(clean);
+              }}
+              className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-white text-lg font-bold focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-zinc-500 uppercase">{t.notes}</label>
+            <input
+              type="text"
+              value={editTxDesc}
+              onChange={(e) => setEditTxDesc(e.target.value)}
+              className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-800 dark:text-white text-base focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <button
+            onClick={() => {
+              const newAmount = parseFloat(editTxAmount.replace(/,/g, ''));
+              if (newAmount > 0 && editTransaction) {
+                editTransaction(editingTx.id, editingTx.type, newAmount, editTxDesc);
+                closeTxModals();
+              }
+            }}
+            className="w-full py-4 mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl cursor-pointer"
+          >
+            {lang === 'bn' ? 'সংরক্ষণ করুন' : 'Save Changes'}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )}
+ </AnimatePresence>
+
+ {/* Delete Transaction Modal */}
+ <AnimatePresence>
+  {deletingTx && (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        transition={{ duration: 0.15 }}
+        className="bg-white dark:bg-zinc-900 w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
+      >
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Trash2 className="w-8 h-8 text-rose-600 dark:text-rose-500" />
+          </div>
+          <h3 className="text-lg font-extrabold text-zinc-900 dark:text-white mb-2">
+            {lang === 'bn' ? 'হিসাব মুছুন' : 'Delete Transaction'}
+          </h3>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            {lang === 'bn' ? 'আপনি কি নিশ্চিত এই লেনদেন মুছে ফেলতে চান?' : 'Are you sure you want to delete this transaction?'}
+          </p>
+        </div>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() => {
+              if (deleteTransaction) {
+                deleteTransaction(deletingTx.id);
+                closeTxModals();
+              }
+            }}
+            className="w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl cursor-pointer"
+          >
+            {lang === 'bn' ? 'হ্যাঁ, মুছুন' : 'Yes, Delete'}
+          </button>
+          <button
+            onClick={closeTxModals}
+            className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer"
+          >
+            {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )}
+ </AnimatePresence>
 
  </div>
  );

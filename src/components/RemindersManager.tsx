@@ -94,7 +94,7 @@ export default function RemindersManager({
 
  // Try HTML5 browser notifications as well!
  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
- new Notification(lang === 'bn' ? "⏰ ইজি ডিউ ট্র্যাকার অ্যালার্ট" : "⏰ Easy Due Tracker Alert", {
+ new Notification(lang === 'bn' ? "⏰ ইজি ডিউ ট্র্যাকার অ্যালার্ট" : "⏰ Challan Track Alert", {
  body: lang === 'bn' 
  ? `বকেয়া আদায়ের জন্য ${randomPick.customerName}-এর সাথে যোগাযোগ করতে মনে রাখুন!` 
  : `Remember to contact ${randomPick.customerName} for pending dues!`,
