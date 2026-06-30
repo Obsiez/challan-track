@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { translations, formatNumber, Language } from '../lib/translations';
+import { triggerHaptic } from '../lib/haptics';
 import { toast } from 'sonner';
 import { showNotification } from '../lib/notifications';
 

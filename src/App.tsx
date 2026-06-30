@@ -20,6 +20,7 @@ import {
 import { showNotification } from './lib/notifications';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
+import { triggerHaptic } from './lib/haptics';
 import { translations, Language, formatNumber } from './lib/translations';
 
 const parseFirestoreDate = (dateVal: any): Date => {
@@ -70,7 +71,7 @@ export default function App() {
 
  // History API / Breadcrumbs for Android Back Button support
  const navigateTo = (tab: typeof currentTab, customerId: string | null = null, replace = false) => {
- if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+ triggerHaptic('single');
  setCurrentTab(tab);
  setSelectedCustomerIdForDetail(customerId);
  const state = { tab, customerId, quickEntry: false };
@@ -83,14 +84,14 @@ export default function App() {
  };
 
  const openQuickEntry = () => {
- if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+ triggerHaptic('single');
  window.history.pushState({ ...window.history.state, quickEntry: true }, '', window.location.href);
  setIsQuickEntryOpen(true);
  };
 
   const closeQuickEntry = () => {
     if (!window.history.state?.quickEntry) {
-      if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(30);
+      triggerHaptic('tick');
       setIsQuickEntryOpen(false);
     } else {
       window.history.back();
@@ -110,7 +111,7 @@ export default function App() {
       const wasQuickEntryOpen = isQuickEntryOpenRef.current;
       const isNowQuickEntryOpen = e.state?.quickEntry || false;
       if (wasQuickEntryOpen && !isNowQuickEntryOpen) {
-        if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(30);
+        triggerHaptic('tick');
       }
       if (e.state) {
         setCurrentTab(e.state.tab || 'home');
@@ -434,7 +435,7 @@ export default function App() {
  {/* Theme switcher */}
  <button
  onClick={() => {
-    if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+    triggerHaptic('single');
     handleThemeChange(theme === 'dark' ? 'light' : 'dark');
   }}
  className="px-4 py-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-800 dark:text-zinc-100 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer flex items-center gap-2 text-xs font-bold transition-colors"
@@ -447,7 +448,7 @@ export default function App() {
  {/* Language selector toggle */}
  <button
  onClick={() => {
-    if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+    triggerHaptic('single');
     handleLangChange(lang === 'bn' ? 'en' : 'bn');
   }}
  className="px-4 py-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl font-extrabold text-xs text-zinc-800 dark:text-zinc-100 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 flex items-center gap-1.5 cursor-pointer transition-colors"

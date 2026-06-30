@@ -141,6 +141,12 @@ export const translations = {
  duePlus: "Due (+)",
  paymentMinus: "Payment (-)",
  duplicateRealtimeWarning: "Warning: Identical entry logged within the last 24 hours.",
+  hapticIntensity: "Vibration Intensity",
+  intensityLight: "Light (Tick)",
+  intensitySoft: "Soft (Tap)",
+  intensityMedium: "Medium (Default)",
+  intensityFirm: "Firm (Buzz)",
+  intensityStrong: "Strong (Vigorous)",
  },
  bn: {
  appName: "চালান ট্র্যাক",
@@ -281,6 +287,12 @@ export const translations = {
  duePlus: "বাকি (+)",
  paymentMinus: "আদায় (-)",
  duplicateRealtimeWarning: "সতর্কবার্তা: গত ২৪ ঘণ্টার মধ্যে এই একই হিসাব যোগ করা হয়েছে।",
+  hapticIntensity: "ভাইব্রেশনের তীব্রতা",
+  intensityLight: "খুব হালকা (টিক)",
+  intensitySoft: "হালকা (ট্যাপ)",
+  intensityMedium: "মাঝারি (স্বাভাবিক)",
+  intensityFirm: "শক্তিশালী (বাজ)",
+  intensityStrong: "তীব্র (জোরালো)",
  }
 };
 

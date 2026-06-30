@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence, useAnimation } from 'motion/react';
 import { translations, formatNumber, formatIndianNumberString, Language } from '../lib/translations';
+import { triggerHaptic } from '../lib/haptics';
 import { toast } from 'sonner';
 
 const WhatsAppIcon = () => (
@@ -131,9 +132,7 @@ const SwipeableCustomerItem = ({
 
 			// Threshold haptic tick when finger distance reaches the threshold (thresholdX)
 			if (Math.abs(diffX) >= thresholdX && !hasVibrated) {
-				if (localStorage.getItem('haptics') === 'true') {
-					window.navigator?.vibrate?.(40);
-				}
+				triggerHaptic('tick');
 				setHasVibrated(true);
 			} else if (Math.abs(diffX) < thresholdX && hasVibrated) {
 				setHasVibrated(false);
@@ -528,7 +527,7 @@ export default function CustomerManager({
  </h2>
  <button
  onClick={() => {
- if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+ triggerHaptic('single');
  setShowAddForm(!showAddForm);
  }}
  className="px-5 py-3 bg-emerald-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-md shadow-emerald-100 dark:shadow-none hover:bg-emerald-700 transition-colors cursor-pointer text-base"
@@ -686,11 +685,11 @@ export default function CustomerManager({
 			swipeGesturesEnabled={swipeGesturesEnabled}
 			isDeleting={deletingCustomer?.id === c.id}
 			onWhatsApp={() => {
-				if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+				triggerHaptic('single');
 				window.open(getShareLink(c, 'whatsapp'), '_blank');
 			}}
 			onDelete={() => {
-				if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.([50, 50]);
+				triggerHaptic('double');
 				handleDelete(c);
 			}}
 		>
@@ -964,7 +963,7 @@ export default function CustomerManager({
  {/* DELETE ACCOUNT BUTTON */}
  <button
               onClick={() => {
-                if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.([50, 50]);
+                triggerHaptic('double');
                 handleDelete(selectedCustomer);
               }}
               className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 dark:text-rose-400 rounded-xl flex items-center justify-center gap-2 cursor-pointer text-xs font-semibold"
@@ -1202,7 +1201,7 @@ export default function CustomerManager({
     <button 
       onClick={(e) => {
         e.stopPropagation();
-        if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+        triggerHaptic('single');
         openEditTxModal(tx);
       }}
       className="p-1.5 rounded-lg text-zinc-400 hover:text-emerald-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
@@ -1213,7 +1212,7 @@ export default function CustomerManager({
     <button 
       onClick={(e) => {
         e.stopPropagation();
-        if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.([50, 50]);
+        triggerHaptic('double');
         openDeleteTxModal(tx);
       }}
       className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"

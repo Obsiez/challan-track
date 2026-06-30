@@ -4,6 +4,7 @@ import {
   TrendingUp, Users, ClipboardList, ArrowUpRight, ArrowDownLeft, ArrowRight
 } from 'lucide-react';
 import { translations, formatNumber, Language } from '../lib/translations';
+import { triggerHaptic } from '../lib/haptics';
 import AnalyticsManager from './AnalyticsManager';
 
 const parseFirestoreDate = (dateVal: any): Date => {
@@ -55,11 +56,11 @@ export default function Dashboard({
     const isLeftSwipe = distance > 50;
     const isRightSwipe = distance < -50;
     if (isLeftSwipe && activeSlide === 0) {
-      if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(15);
+      triggerHaptic('tick');
       setActiveSlide(1);
     }
     if (isRightSwipe && activeSlide === 1) {
-      if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(15);
+      triggerHaptic('tick');
       setActiveSlide(0);
     }
   };

@@ -7,6 +7,7 @@ import { auth } from '../firebase';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
 import { translations, formatNumber, Language } from '../lib/translations';
+import { triggerHaptic } from '../lib/haptics';
 
 interface SettingsManagerProps {
   theme: 'light' | 'dark';
@@ -49,6 +50,9 @@ export default function SettingsManager({
 
  const [hapticsOn, setHapticsOn] = useState(() => localStorage.getItem('haptics') === 'true');
   const [confirmAction, setConfirmAction] = useState<any>(null);
+  const [hapticIntensity, setHapticIntensity] = useState(() => 
+    parseInt(localStorage.getItem('haptic_intensity') || '3')
+  );
 
   // Scroll lock when modal is active
   useEffect(() => {
@@ -65,11 +69,17 @@ export default function SettingsManager({
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
  const toggleHaptics = () => {
- const newVal = !hapticsOn;
- setHapticsOn(newVal);
- localStorage.setItem('haptics', String(newVal));
- if (newVal) window.navigator?.vibrate?.(50);
- };
+    const newVal = !hapticsOn;
+    setHapticsOn(newVal);
+    localStorage.setItem('haptics', String(newVal));
+    if (newVal) triggerHaptic('single');
+  };
+
+  const changeHapticIntensity = (val: number) => {
+    setHapticIntensity(val);
+    localStorage.setItem('haptic_intensity', String(val));
+    triggerHaptic('single');
+  };
 
  const handleBackupExport = () => {
  const backupData = {
@@ -117,7 +127,7 @@ export default function SettingsManager({
  <button
  type="button"
  onClick={() => {
-    if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+    triggerHaptic('single');
     onLangChange('en');
   }}
  className={`py-4 px-4 rounded-xl border-2 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${
@@ -133,7 +143,7 @@ export default function SettingsManager({
  <button
  type="button"
  onClick={() => {
-    if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+    triggerHaptic('single');
     onLangChange('bn');
   }}
  className={`py-4 px-4 rounded-xl border-2 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${
@@ -164,7 +174,7 @@ export default function SettingsManager({
  <button
  type="button"
  onClick={() => {
-    if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+    triggerHaptic('single');
     updateTheme('light');
   }}
  className={`py-4 px-4 rounded-xl border-2 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${
@@ -180,7 +190,7 @@ export default function SettingsManager({
  <button
  type="button"
  onClick={() => {
-    if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+    triggerHaptic('single');
     updateTheme('dark');
   }}
  className={`py-4 px-4 rounded-xl border-2 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${
@@ -196,28 +206,59 @@ export default function SettingsManager({
  </div>
 
  {/* HAPTICS TOGGLE CARD */}
- <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl shadow-md space-y-4">
- <div className="flex items-center justify-between">
-   <div>
-     <h2 className="text-xl font-bold text-zinc-900 dark:text-white flex items-center gap-2">
-       {lang === 'bn' ? 'ভাইব্রেশন' : 'Haptic Feedback'}
-     </h2>
-     <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-       {lang === 'bn' ? 'বাটনে চাপ দিলে হালকা ভাইব্রেশন হবে' : 'Vibrate on button press'}
-     </p>
-   </div>
-   <button
-     onClick={toggleHaptics}
-     className={`w-14 h-8 flex items-center rounded-full p-1 cursor-pointer transition-colors ${
-       hapticsOn ? 'bg-emerald-500' : 'bg-zinc-200 dark:bg-zinc-700'
-     }`}
-   >
-     <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform ${
-       hapticsOn ? 'translate-x-6' : 'translate-x-0'
-     }`} />
-   </button>
- </div>
- </div>
+  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl shadow-md space-y-4">
+  <div className="flex items-center justify-between">
+    <div>
+      <h2 className="text-xl font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+        {lang === 'bn' ? 'ভাইব্রেশন' : 'Haptic Feedback'}
+      </h2>
+      <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+        {lang === 'bn' ? 'বাটনে চাপ দিলে হালকা ভাইব্রেশন হবে' : 'Vibrate on button press'}
+      </p>
+    </div>
+    <button
+      onClick={toggleHaptics}
+      className={`w-14 h-8 flex items-center rounded-full p-1 cursor-pointer transition-colors ${
+        hapticsOn ? 'bg-emerald-500' : 'bg-zinc-200 dark:bg-zinc-700'
+      }`}
+    >
+      <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform ${
+        hapticsOn ? 'translate-x-6' : 'translate-x-0'
+      }`} />
+    </button>
+  </div>
+
+  {hapticsOn && (
+    <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-3">
+      <div className="flex justify-between items-center text-sm font-bold text-zinc-700 dark:text-zinc-300">
+        <span>{t.hapticIntensity}</span>
+        <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">
+          {hapticIntensity === 1 ? t.intensityLight
+           : hapticIntensity === 2 ? t.intensitySoft
+           : hapticIntensity === 3 ? t.intensityMedium
+           : hapticIntensity === 4 ? t.intensityFirm
+           : t.intensityStrong}
+        </span>
+      </div>
+      <input 
+        type="range"
+        min="1"
+        max="5"
+        step="1"
+        value={hapticIntensity}
+        onChange={(e) => changeHapticIntensity(Number(e.target.value))}
+        className="w-full h-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 dark:accent-emerald-400"
+      />
+      <div className="flex justify-between text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 px-1">
+        <span>1</span>
+        <span>2</span>
+        <span>3</span>
+        <span>4</span>
+        <span>5</span>
+      </div>
+    </div>
+  )}
+  </div>
 
    {/* SWIPE GESTURES TOGGLE CARD */}
   <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl shadow-md space-y-4">
@@ -558,7 +599,7 @@ export default function SettingsManager({
               const customer = confirmAction.customer;
               setConfirmAction(null);
               
-              if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+              triggerHaptic('single');
               
               if (type === 'empty_trash') {
                 await emptyTrash();
