@@ -4,33 +4,33 @@ export const triggerHaptic = (type: 'single' | 'double' | 'tick' | number | numb
   
   // Calculate base duration for single vibration
   // intensity mapping:
-  // 1: 10ms (Very light tick)
-  // 2: 25ms (Soft tap)
-  // 3: 45ms (Medium buzz)
-  // 4: 65ms (Firm buzz)
-  // 5: 85ms (Strong buzz)
-  const baseDuration = intensity === 1 ? 10
-                     : intensity === 2 ? 25
-                     : intensity === 3 ? 45
-                     : intensity === 4 ? 65
-                     : 85;
+  // 1: 15ms (Very light tick)
+  // 2: 30ms (Soft tap)
+  // 3: 50ms (Medium buzz)
+  // 4: 75ms (Firm buzz)
+  // 5: 110ms (Strong buzz)
+  const baseDuration = intensity === 1 ? 15
+                     : intensity === 2 ? 30
+                     : intensity === 3 ? 50
+                     : intensity === 4 ? 75
+                     : 110;
 
   let pattern: number | number[];
   
   if (typeof type === 'number') {
-    // scale custom duration based on intensity ratio to medium (intensity 3 = 45ms)
-    const ratio = baseDuration / 45;
-    pattern = Math.max(5, Math.round(type * ratio));
+    // scale custom duration based on intensity ratio to medium (intensity 3 = 50ms)
+    const ratio = baseDuration / 50;
+    pattern = Math.max(8, Math.round(type * ratio));
   } else if (Array.isArray(type)) {
-    const ratio = baseDuration / 45;
+    const ratio = baseDuration / 50;
     pattern = type.map((val, idx) => {
       if (idx % 2 === 0) { // vibrate duration
-        return Math.max(5, Math.round(val * ratio));
+        return Math.max(8, Math.round(val * ratio));
       }
       return val; // gap duration remains unchanged
     });
   } else if (type === 'tick') {
-    pattern = Math.max(5, Math.round(baseDuration * 0.4)); // even lighter
+    pattern = Math.max(10, Math.round(baseDuration * 0.5)); // even lighter but palpable
   } else if (type === 'double') {
     pattern = [baseDuration, 40, baseDuration];
   } else { // 'single'

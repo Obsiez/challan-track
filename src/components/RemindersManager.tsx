@@ -104,11 +104,11 @@ export default function RemindersManager({
   });
  }
 
- // Try Web Vibration API
- if (typeof window !== 'undefined' && navigator.vibrate) {
- navigator.vibrate([200, 100, 200]);
- }
- };
+  // Try Web Vibration API
+  if (typeof window !== 'undefined') {
+    triggerHaptic([200, 100, 200]);
+  }
+  };
 
  return (
  <div className="space-y-6 no-select">
