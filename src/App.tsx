@@ -218,7 +218,8 @@ export default function App() {
  trashCustomers,
  restoreCustomer,
  permanentlyDeleteCustomer,
- emptyTrash
+ emptyTrash,
+ importLedgerData
  } = useLedger(user?.uid);
 
   const [selectedDailyDate, setSelectedDailyDate] = useState<Date>(new Date());
@@ -680,6 +681,7 @@ updateSettings={updateSettings}
            setSwipeGesturesEnabled(val);
            localStorage.setItem('swipe_gestures_enabled', val ? 'true' : 'false');
          }}
+         importLedgerData={importLedgerData}
        />
   )}
 

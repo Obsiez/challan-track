@@ -845,6 +845,400 @@ export function useLedger(userId: string | undefined) {
     }
   };
 
+  const importLedgerData = async (
+    backupData: any,
+    choice: 'merge' | 'clear' | 'skip'
+  ) => {
+    if (!userId) return;
+
+    const isLocal = userId === 'local-guest-session' || isOfflineFallback;
+
+    // Validate structure
+    if (!backupData || !Array.isArray(backupData.customers) || !Array.isArray(backupData.ledgerTransactions)) {
+      throw new Error('INVALID_BACKUP_FILE');
+    }
+
+    // List of Firestore operations to commit
+    const operations: { ref: any; data: any; type: 'set' | 'update' | 'delete' }[] = [];
+
+    // Local copies of states we'll update
+    let newCustomers: Customer[] = [...customers];
+    let newTrash: Customer[] = [...trashCustomers];
+    let newTransactions: Transaction[] = [...transactions];
+    let newReminders: Reminder[] = [...reminders];
+
+    if (choice === 'clear') {
+      // Clear Firestore references for existing customers, transactions, and reminders
+      if (!isLocal) {
+        // Collect deletes for existing customers (both active and trash)
+        for (const c of customers) {
+          operations.push({
+            ref: doc(db, 'users', userId, 'customers', c.id),
+            data: null,
+            type: 'delete'
+          });
+        }
+        for (const c of trashCustomers) {
+          operations.push({
+            ref: doc(db, 'users', userId, 'customers', c.id),
+            data: null,
+            type: 'delete'
+          });
+        }
+        // Collect deletes for transactions
+        for (const tx of transactions) {
+          operations.push({
+            ref: doc(db, 'users', userId, 'transactions', tx.id),
+            data: null,
+            type: 'delete'
+          });
+        }
+        // Collect deletes for reminders
+        for (const r of reminders) {
+          operations.push({
+            ref: doc(db, 'users', userId, 'reminders', r.id),
+            data: null,
+            type: 'delete'
+          });
+        }
+      }
+
+      // Reset local variables
+      newCustomers = [];
+      newTrash = [];
+      newTransactions = [];
+      newReminders = [];
+
+      // Create new customers from backup
+      const customerMap = new Map<string, Customer>(); // name lowercased -> Customer object
+      
+      for (const bc of backupData.customers) {
+        if (!bc.name) continue;
+        const customId = doc(collection(db, 'temp')).id;
+        const cDate = bc.createdAt ? new Date(bc.createdAt) : new Date();
+        const customerObj: Customer = {
+          id: customId,
+          userId,
+          name: bc.name.trim(),
+          phone: (bc.phone || '').trim(),
+          outstandingDue: bc.outstandingDue || 0,
+          createdAt: cDate,
+          updatedAt: new Date()
+        };
+        customerMap.set(bc.name.trim().toLowerCase(), customerObj);
+        newCustomers.push(customerObj);
+
+        if (!isLocal) {
+          operations.push({
+            ref: doc(db, 'users', userId, 'customers', customId),
+            data: {
+              id: customId,
+              userId,
+              name: bc.name.trim(),
+              phone: (bc.phone || '').trim(),
+              outstandingDue: bc.outstandingDue || 0,
+              createdAt: cDate,
+              updatedAt: new Date()
+            },
+            type: 'set'
+          });
+        }
+      }
+
+      // Create transactions from backup
+      for (const bt of backupData.ledgerTransactions) {
+        if (!bt.customer) continue;
+        const customerNameLower = bt.customer.trim().toLowerCase();
+        let matchedCustomer = customerMap.get(customerNameLower);
+        
+        // If the customer isn't in the customer list for some reason, create them
+        if (!matchedCustomer) {
+          const customId = doc(collection(db, 'temp')).id;
+          const customerObj: Customer = {
+            id: customId,
+            userId,
+            name: bt.customer.trim(),
+            phone: '',
+            outstandingDue: 0,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          customerMap.set(customerNameLower, customerObj);
+          newCustomers.push(customerObj);
+          matchedCustomer = customerObj;
+
+          if (!isLocal) {
+            operations.push({
+              ref: doc(db, 'users', userId, 'customers', customId),
+              data: {
+                id: customId,
+                userId,
+                name: bt.customer.trim(),
+                phone: '',
+                outstandingDue: 0,
+                createdAt: new Date(),
+                updatedAt: new Date()
+              },
+              type: 'set'
+            });
+          }
+        }
+
+        const customTxId = doc(collection(db, 'temp')).id;
+        const txDate = bt.date ? new Date(bt.date) : new Date();
+        const txObj: Transaction = {
+          id: customTxId,
+          userId,
+          customerId: matchedCustomer.id,
+          customerName: matchedCustomer.name,
+          type: bt.type,
+          amount: bt.amount,
+          description: (bt.description || '').trim(),
+          date: txDate,
+          createdAt: new Date()
+        };
+        newTransactions.push(txObj);
+
+        if (!isLocal) {
+          operations.push({
+            ref: doc(db, 'users', userId, 'transactions', customTxId),
+            data: {
+              id: customTxId,
+              userId,
+              customerId: matchedCustomer.id,
+              customerName: matchedCustomer.name,
+              type: bt.type,
+              amount: bt.amount,
+              description: (bt.description || '').trim(),
+              date: txDate,
+              createdAt: new Date()
+            },
+            type: 'set'
+          });
+        }
+      }
+    } else {
+      // choice === 'merge' or 'skip'
+      // 1. Process customers
+      // Keep track of the current active customers by name
+      const customerMap = new Map<string, Customer>();
+      for (const c of newCustomers) {
+        customerMap.set(c.name.trim().toLowerCase(), c);
+      }
+
+      for (const bc of backupData.customers) {
+        if (!bc.name) continue;
+        const key = bc.name.trim().toLowerCase();
+        const existing = customerMap.get(key);
+
+        if (existing) {
+          if (choice === 'merge') {
+            // Update phone if different
+            const backupPhone = (bc.phone || '').trim();
+            if (backupPhone && existing.phone !== backupPhone) {
+              existing.phone = backupPhone;
+              existing.updatedAt = new Date();
+              
+              if (!isLocal) {
+                operations.push({
+                  ref: doc(db, 'users', userId, 'customers', existing.id),
+                  data: { phone: backupPhone, updatedAt: new Date() },
+                  type: 'update'
+                });
+              }
+            }
+          }
+        } else {
+          // Customer does not exist, create new one
+          const customId = doc(collection(db, 'temp')).id;
+          const cDate = bc.createdAt ? new Date(bc.createdAt) : new Date();
+          const customerObj: Customer = {
+            id: customId,
+            userId,
+            name: bc.name.trim(),
+            phone: (bc.phone || '').trim(),
+            outstandingDue: 0, // will accumulate from new transactions
+            createdAt: cDate,
+            updatedAt: new Date()
+          };
+          customerMap.set(key, customerObj);
+          newCustomers.push(customerObj);
+
+          if (!isLocal) {
+            operations.push({
+              ref: doc(db, 'users', userId, 'customers', customId),
+              data: {
+                id: customId,
+                userId,
+                name: bc.name.trim(),
+                phone: (bc.phone || '').trim(),
+                outstandingDue: 0,
+                createdAt: cDate,
+                updatedAt: new Date()
+              },
+              type: 'set'
+            });
+          }
+        }
+      }
+
+      // 2. Process transactions
+      for (const bt of backupData.ledgerTransactions) {
+        if (!bt.customer) continue;
+        const key = bt.customer.trim().toLowerCase();
+        let matchedCustomer = customerMap.get(key);
+
+        // If customer doesn't exist (can happen if transactions contains entries for someone not in customers list)
+        if (!matchedCustomer) {
+          const customId = doc(collection(db, 'temp')).id;
+          const customerObj: Customer = {
+            id: customId,
+            userId,
+            name: bt.customer.trim(),
+            phone: '',
+            outstandingDue: 0,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          customerMap.set(key, customerObj);
+          newCustomers.push(customerObj);
+          matchedCustomer = customerObj;
+
+          if (!isLocal) {
+            operations.push({
+              ref: doc(db, 'users', userId, 'customers', customId),
+              data: {
+                id: customId,
+                userId,
+                name: bt.customer.trim(),
+                phone: '',
+                outstandingDue: 0,
+                createdAt: new Date(),
+                updatedAt: new Date()
+              },
+              type: 'set'
+            });
+          }
+        }
+
+        // Check if transaction already exists in our live transaction list
+        const btDateMs = bt.date ? new Date(bt.date).getTime() : 0;
+        const exists = newTransactions.some(tx => {
+          if (tx.customerId !== matchedCustomer!.id) return false;
+          if (tx.type !== bt.type) return false;
+          if (tx.amount !== bt.amount) return false;
+          if ((tx.description || '').trim() !== (bt.description || '').trim()) return false;
+          // Compare dates with tolerance (within 1 second)
+          const txDateMs = new Date(tx.date).getTime();
+          return Math.abs(txDateMs - btDateMs) < 1000;
+        });
+
+        if (!exists) {
+          const customTxId = doc(collection(db, 'temp')).id;
+          const txDate = bt.date ? new Date(bt.date) : new Date();
+          const txObj: Transaction = {
+            id: customTxId,
+            userId,
+            customerId: matchedCustomer.id,
+            customerName: matchedCustomer.name,
+            type: bt.type,
+            amount: bt.amount,
+            description: (bt.description || '').trim(),
+            date: txDate,
+            createdAt: new Date()
+          };
+          newTransactions.push(txObj);
+
+          if (!isLocal) {
+            operations.push({
+              ref: doc(db, 'users', userId, 'transactions', customTxId),
+              data: {
+                id: customTxId,
+                userId,
+                customerId: matchedCustomer.id,
+                customerName: matchedCustomer.name,
+                type: bt.type,
+                amount: bt.amount,
+                description: (bt.description || '').trim(),
+                date: txDate,
+                createdAt: new Date()
+              },
+              type: 'set'
+            });
+          }
+
+          // Accumulate balance
+          const diff = bt.type === 'due' ? bt.amount : -bt.amount;
+          matchedCustomer.outstandingDue += diff;
+          matchedCustomer.updatedAt = new Date();
+        }
+      }
+
+      // Sync customer balance updates to Firestore for customers that had updates
+      if (!isLocal) {
+        for (const c of newCustomers) {
+          const opIndex = operations.findIndex(op => op.type === 'set' && op.ref.id === c.id);
+          if (opIndex >= 0) {
+            // Update the set operation data
+            operations[opIndex].data.outstandingDue = c.outstandingDue;
+            operations[opIndex].data.updatedAt = c.updatedAt;
+          } else {
+            // Check if customer outstandingDue changed from original.
+            const original = customers.find(orig => orig.id === c.id);
+            if (original && (original.outstandingDue !== c.outstandingDue || original.phone !== c.phone)) {
+              operations.push({
+                ref: doc(db, 'users', userId, 'customers', c.id),
+                data: { 
+                  outstandingDue: c.outstandingDue, 
+                  phone: c.phone, 
+                  updatedAt: c.updatedAt 
+                },
+                type: 'update'
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Execute Firestore operations in chunks of 400
+    if (!isLocal && operations.length > 0) {
+      const chunkArray = <T>(arr: T[], size: number): T[][] => {
+        const chunks: T[][] = [];
+        for (let i = 0; i < arr.length; i += size) {
+          chunks.push(arr.slice(i, i + size));
+        }
+        return chunks;
+      };
+
+      const chunks = chunkArray(operations, 400);
+      for (const chunk of chunks) {
+        const batch = writeBatch(db);
+        for (const op of chunk) {
+          if (op.type === 'set') {
+            batch.set(op.ref, op.data);
+          } else if (op.type === 'update') {
+            batch.update(op.ref, op.data);
+          } else if (op.type === 'delete') {
+            batch.delete(op.ref);
+          }
+        }
+        await batch.commit();
+      }
+    }
+
+    // Update local state
+    setCustomers(newCustomers.filter(c => !c.isDeleted));
+    setTrashCustomers(newTrash);
+    setTransactions(newTransactions);
+    setReminders(newReminders);
+
+    // Save to local storage
+    saveLocalCustomers([...newCustomers, ...newTrash]);
+    saveLocalTransactions(newTransactions);
+    saveLocalReminders(newReminders);
+  };
+
   // 5. Automatic cleanup of trashed items older than 7 days
   useEffect(() => {
     if (!userId || loading || trashCustomers.length === 0) return;
@@ -886,6 +1280,7 @@ export function useLedger(userId: string | undefined) {
     deleteCustomer,
     restoreCustomer,
     permanentlyDeleteCustomer,
-    emptyTrash
+    emptyTrash,
+    importLedgerData
   };
 }

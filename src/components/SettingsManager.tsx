@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Customer, Transaction, UserSettings } from '../types';
 import { 
- Settings, Moon, Sun, Cloud, Download, LogOut, CheckCircle2, Globe, AlertTriangle, X, RotateCcw, Trash2, Contrast 
+ Settings, Moon, Sun, Cloud, Download, Upload, LogOut, CheckCircle2, Globe, AlertTriangle, X, RotateCcw, Trash2, Contrast 
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { toast } from 'sonner';
@@ -26,6 +26,7 @@ interface SettingsManagerProps {
  onLangChange: (lang: Language) => void;
  deferredPrompt: any;
  onInstallComplete: () => void;
+ importLedgerData: (backupData: any, choice: 'merge' | 'clear' | 'skip') => Promise<void>;
 }
 
 export default function SettingsManager({
@@ -44,19 +45,69 @@ export default function SettingsManager({
  lang,
  onLangChange,
  deferredPrompt,
- onInstallComplete
+ onInstallComplete,
+ importLedgerData
 }: SettingsManagerProps) {
  const t = translations[lang];
 
- const [hapticsOn, setHapticsOn] = useState(() => localStorage.getItem('haptics') === 'true');
+  const [hapticsOn, setHapticsOn] = useState(() => localStorage.getItem('haptics') === 'true');
   const [confirmAction, setConfirmAction] = useState<any>(null);
   const [hapticIntensity, setHapticIntensity] = useState(() => 
     parseInt(localStorage.getItem('haptic_intensity') || '3')
   );
 
+  const [importState, setImportState] = useState<{
+    showModal: boolean;
+    backupData: any;
+    choice: 'merge' | 'clear' | 'skip';
+    confirmText: string;
+    loading: boolean;
+  }>({
+    showModal: false,
+    backupData: null,
+    choice: 'merge',
+    confirmText: '',
+    loading: false
+  });
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImportClick = () => {
+    triggerHaptic('single');
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (!json || !Array.isArray(json.customers) || !Array.isArray(json.ledgerTransactions)) {
+          toast.error(lang === 'bn' ? 'অকার্যকর ব্যাকআপ ফাইল!' : 'Invalid backup file structure!');
+          return;
+        }
+        setImportState({
+          showModal: true,
+          backupData: json,
+          choice: 'merge',
+          confirmText: '',
+          loading: false
+        });
+        triggerHaptic('single');
+      } catch (err) {
+        toast.error(lang === 'bn' ? 'ফাইলটি পড়তে সমস্যা হয়েছে!' : 'Failed to parse JSON file!');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   // Scroll lock when modal is active
   useEffect(() => {
-    if (confirmAction) {
+    if (confirmAction || importState.showModal) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
@@ -64,7 +115,7 @@ export default function SettingsManager({
     return () => {
       document.body.style.overflow = '';
     };
-  }, [confirmAction]);
+  }, [confirmAction, importState.showModal]);
   const [isDismissed, setIsDismissed] = useState(() => localStorage.getItem('install_card_dismissed') === 'true');
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
@@ -330,14 +381,32 @@ export default function SettingsManager({
  <div className="text-sm font-bold text-zinc-800 dark:text-white">{lang === 'bn' ? 'ব্যাকআপ লিখন ডাউনলোড (.json)' : 'Save Backup (.json)'}</div>
  <p className="text-xs text-zinc-500">{lang === 'bn' ? 'সরাসরি ব্যাকআপ হিসাব ডাউনলোড করে রাখুন।' : 'Download a full ledger copy for safe keeping.'}</p>
  </div>
- 
- <button
- onClick={handleBackupExport}
- className="px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 font-extrabold text-white rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-colors"
- >
- <Download className="w-4 h-4 text-white" />
- {lang === 'bn' ? 'ব্যাকআপ ফাইল সংরক্ষণ' : 'Download Backup File'}
- </button>
+  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+    <button
+    onClick={handleBackupExport}
+    className="px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 font-extrabold text-white rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-colors"
+    >
+    <Download className="w-4 h-4 text-white" />
+    {lang === 'bn' ? 'ব্যাকআপ ফাইল সংরক্ষণ' : 'Download Backup File'}
+    </button>
+
+    <button
+    type="button"
+    onClick={handleImportClick}
+    className="px-5 py-3.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 font-extrabold text-zinc-800 dark:text-zinc-200 border border-zinc-250 dark:border-zinc-700 rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer shadow-sm transition-colors"
+    >
+    <Upload className="w-4 h-4" />
+    {lang === 'bn' ? 'ব্যাকআপ ফাইল আপলোড' : 'Upload Backup File'}
+    </button>
+    
+    <input
+      type="file"
+      ref={fileInputRef}
+      onChange={handleFileChange}
+      accept=".json"
+      className="hidden"
+    />
+  </div>
  </div>
  </div>
 
@@ -626,6 +695,223 @@ export default function SettingsManager({
           <button
             onClick={() => setConfirmAction(null)}
             className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer"
+          >
+            {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )}
+
+  {/* JSON Backup Import Modal */}
+  {importState.showModal && (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80">
+      <motion.div
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white dark:bg-zinc-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 max-h-[90vh] flex flex-col"
+      >
+        <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
+          <h3 className="text-lg font-black text-zinc-900 dark:text-white">
+            {lang === 'bn' ? 'ব্যাকআপ ডাটা ইম্পোর্ট করুন' : 'Import Backup Data'}
+          </h3>
+          <button
+            onClick={() => setImportState(prev => ({ ...prev, showModal: false }))}
+            className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full cursor-pointer transition-colors"
+            disabled={importState.loading}
+          >
+            <X className="w-5 h-5 text-zinc-500" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto py-4 space-y-4 pr-1">
+          {/* File Meta Info */}
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-4 rounded-xl space-y-1.5 text-xs text-zinc-650 dark:text-zinc-400">
+            <div className="flex justify-between">
+              <span>{lang === 'bn' ? 'ব্যাকআপ সময়:' : 'Backup Date:'}</span>
+              <span className="font-bold">
+                {importState.backupData.backupTimestamp 
+                  ? new Date(importState.backupData.backupTimestamp).toLocaleString(lang === 'bn' ? 'bn-BD' : 'en-US') 
+                  : 'N/A'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span>{lang === 'bn' ? 'গ্রাহক সংখ্যা:' : 'Total Customers:'}</span>
+              <span className="font-bold">{importState.backupData.customers?.length || 0}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>{lang === 'bn' ? 'লেনদেনের সংখ্যা:' : 'Total Transactions:'}</span>
+              <span className="font-bold">{importState.backupData.ledgerTransactions?.length || 0}</span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {/* Choice 1 Option Card */}
+            <button
+              onClick={() => setImportState(prev => ({ ...prev, choice: 'merge' }))}
+              className={`w-full text-left p-4 rounded-xl border-2 transition-all cursor-pointer flex gap-3 ${
+                importState.choice === 'merge'
+                  ? 'border-emerald-500 bg-emerald-50/20 dark:bg-emerald-950/10'
+                  : 'border-zinc-200 dark:border-zinc-850 bg-transparent hover:bg-zinc-50/50 dark:hover:bg-zinc-850/50'
+              }`}
+              disabled={importState.loading}
+            >
+              <div className="shrink-0 mt-0.5">
+                <input
+                  type="radio"
+                  checked={importState.choice === 'merge'}
+                  onChange={() => {}}
+                  className="accent-emerald-500 w-4 h-4 cursor-pointer"
+                />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-black text-zinc-800 dark:text-white">
+                    {lang === 'bn' ? '১. মার্জ ও আপডেট (সুপারিশকৃত)' : 'Choice 1: Merge & Update (Recommended Default)'}
+                  </span>
+                  <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400 rounded-full">
+                    {lang === 'bn' ? 'প্রস্তাবিত' : 'Recommended'}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-normal">
+                  {lang === 'bn' 
+                    ? 'ফাইলটি লাইভ ডাটাবেসের সাথে তুলনা করে অনুপস্থিত এন্ট্রি যোগ করবে এবং কোনো পরিবর্তন থাকলে আপডেট করবে। একাধিক ডিভাইসে সিঙ্ক করার জন্য উপযুক্ত।' 
+                    : 'Compares the file with the live database. It adds missing entries and updates existing ones if changes are found. Good for syncing across multiple devices.'}
+                </p>
+              </div>
+            </button>
+
+            {/* Choice 3 Option Card */}
+            <button
+              onClick={() => setImportState(prev => ({ ...prev, choice: 'skip' }))}
+              className={`w-full text-left p-4 rounded-xl border-2 transition-all cursor-pointer flex gap-3 ${
+                importState.choice === 'skip'
+                  ? 'border-sky-500 bg-sky-50/20 dark:bg-sky-950/10'
+                  : 'border-zinc-200 dark:border-zinc-850 bg-transparent hover:bg-zinc-50/50 dark:hover:bg-zinc-850/50'
+              }`}
+              disabled={importState.loading}
+            >
+              <div className="shrink-0 mt-0.5">
+                <input
+                  type="radio"
+                  checked={importState.choice === 'skip'}
+                  onChange={() => {}}
+                  className="accent-sky-500 w-4 h-4 cursor-pointer"
+                />
+              </div>
+              <div>
+                <span className="text-sm font-black text-zinc-800 dark:text-white">
+                  {lang === 'bn' ? '৩. ডুপ্লিকেট এড়িয়ে যান' : 'Choice 3: Skip Duplicates'}
+                </span>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-normal">
+                  {lang === 'bn' 
+                    ? 'শুধুমাত্র নতুন এন্ট্রিগুলো যুক্ত করবে যা বর্তমান ডাটাবেসে নেই। বিদ্যমান রেকর্ডগুলোকে সম্পূর্ণ অপরিবর্তিত রাখবে। ভুলবশত মুছে ফেলা রেকর্ড উদ্ধারে সহায়ক।' 
+                    : 'Only imports entries from the .json file that do not exist at all in the current live database. Leaves existing records untouched. Good for recovering deleted items safely.'}
+                </p>
+              </div>
+            </button>
+
+            {/* Choice 2 Option Card */}
+            <button
+              onClick={() => setImportState(prev => ({ ...prev, choice: 'clear' }))}
+              className={`w-full text-left p-4 rounded-xl border-2 transition-all cursor-pointer flex gap-3 ${
+                importState.choice === 'clear'
+                  ? 'border-rose-500 bg-rose-50/25 dark:bg-rose-950/20'
+                  : 'border-zinc-200 dark:border-zinc-850 bg-transparent hover:bg-rose-50/10 dark:hover:bg-rose-950/10'
+              }`}
+              disabled={importState.loading}
+            >
+              <div className="shrink-0 mt-0.5">
+                <input
+                  type="radio"
+                  checked={importState.choice === 'clear'}
+                  onChange={() => {}}
+                  className="accent-rose-500 w-4 h-4 cursor-pointer"
+                />
+              </div>
+              <div>
+                <span className="text-sm font-black text-rose-600 dark:text-rose-455">
+                  {lang === 'bn' ? '২. মুছুন ও প্রতিস্থাপন করুন (সম্পূর্ণ রিস্টোর)' : 'Choice 2: Clear & Replace (Full Restore)'}
+                </span>
+                <p className="text-xs text-rose-600/90 dark:text-rose-400/90 mt-1 leading-normal">
+                  {lang === 'bn' 
+                    ? 'সতর্কতা: বর্তমান ডাটাবেসের সমস্ত তথ্য মুছে ফেলবে এবং ব্যাকআপ ফাইল দিয়ে প্রতিস্থাপন করবে। সম্পূর্ণ নতুন ডিভাইসে স্থানান্তর বা নষ্ট ডাটাবেস মেরামতের জন্য।' 
+                    : 'WARNING: Completely wipes the existing live database and replaces it entirely with the data from the .json file. Good for new devices or fixing corrupted databases.'}
+                </p>
+              </div>
+            </button>
+
+            {/* Choice 2 Secondary Verification Input */}
+            {importState.choice === 'clear' && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 p-4 rounded-xl space-y-2.5"
+              >
+                <label className="text-xs font-bold text-rose-700 dark:text-rose-400 block leading-tight">
+                  {lang === 'bn' 
+                    ? 'ডাটাবেস সম্পূর্ণ মুছে ফেলার জন্য নিচে "RESTORE" শব্দটি টাইপ করুন:' 
+                    : 'To confirm full restore and deletion of all current data, please type "RESTORE" below:'}
+                </label>
+                <input
+                  type="text"
+                  value={importState.confirmText}
+                  onChange={(e) => setImportState(prev => ({ ...prev, confirmText: e.target.value }))}
+                  placeholder="RESTORE"
+                  className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-rose-300 dark:border-rose-800 rounded-lg text-sm text-center font-bold tracking-widest text-rose-600 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                  disabled={importState.loading}
+                />
+              </motion.div>
+            )}
+          </div>
+        </div>
+
+        <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 flex flex-col gap-3">
+          <button
+            onClick={async () => {
+              if (importState.choice === 'clear' && importState.confirmText !== 'RESTORE') {
+                toast.error(lang === 'bn' ? 'নিশ্চিতকরণের জন্য "RESTORE" শব্দটি টাইপ করুন!' : 'Please type "RESTORE" to confirm!');
+                return;
+              }
+
+              setImportState(prev => ({ ...prev, loading: true }));
+              triggerHaptic('single');
+
+              try {
+                await importLedgerData(importState.backupData, importState.choice);
+                toast.success(lang === 'bn' ? 'ডাটা সফলভাবে ইম্পোর্ট করা হয়েছে!' : 'Data imported successfully!');
+                triggerHaptic('double');
+                setImportState(prev => ({ ...prev, showModal: false }));
+              } catch (err) {
+                console.error(err);
+                toast.error(lang === 'bn' ? 'ইম্পোর্ট করতে সমস্যা হয়েছে!' : 'Failed to import data!');
+              } finally {
+                setImportState(prev => ({ ...prev, loading: false }));
+              }
+            }}
+            disabled={importState.loading || (importState.choice === 'clear' && importState.confirmText !== 'RESTORE')}
+            className={`w-full py-4 text-white font-bold rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-md ${
+              importState.choice === 'clear'
+                ? 'bg-rose-600 hover:bg-rose-700 disabled:bg-rose-600/40 disabled:cursor-not-allowed'
+                : importState.choice === 'skip'
+                  ? 'bg-sky-600 hover:bg-sky-700 disabled:bg-sky-600/40'
+                  : 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/40'
+            }`}
+          >
+            {importState.loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                {lang === 'bn' ? 'ইম্পোর্ট করা হচ্ছে...' : 'Importing...'}
+              </>
+            ) : (
+              lang === 'bn' ? 'ইম্পোর্ট শুরু করুন' : 'Confirm Import'
+            )}
+          </button>
+
+          <button
+            onClick={() => setImportState(prev => ({ ...prev, showModal: false }))}
+            disabled={importState.loading}
+            className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer transition-colors"
           >
             {lang === 'bn' ? 'বাতিল' : 'Cancel'}
           </button>
