@@ -1,12 +1,21 @@
 import React, { useState } from 'react';
 import { Customer, Transaction, UserSettings } from '../types';
 import { 
- Settings, Moon, Sun, Cloud, Download, LogOut, CheckCircle2, Globe 
+ Settings, Moon, Sun, Cloud, Download, LogOut, CheckCircle2, Globe, AlertTriangle, X, RotateCcw, Trash2 
 } from 'lucide-react';
 import { auth } from '../firebase';
+import { toast } from 'sonner';
+import { motion } from 'motion/react';
 import { translations, formatNumber, Language } from '../lib/translations';
 
 interface SettingsManagerProps {
+  theme: 'light' | 'dark';
+  trashCustomers: Customer[];
+  restoreCustomer: (customerId: string) => Promise<void>;
+  permanentlyDeleteCustomer: (customerId: string) => Promise<void>;
+  emptyTrash: () => Promise<void>;
+  swipeGesturesEnabled: boolean;
+  onSwipeGesturesToggle: (val: boolean) => void;
  settings: UserSettings | null;
  updateTheme: (theme: 'light' | 'dark') => Promise<void>;
  customers: Customer[];
@@ -19,6 +28,13 @@ interface SettingsManagerProps {
 }
 
 export default function SettingsManager({
+  theme,
+  trashCustomers,
+  restoreCustomer,
+  permanentlyDeleteCustomer,
+  emptyTrash,
+  swipeGesturesEnabled,
+  onSwipeGesturesToggle,
  settings,
  updateTheme,
  customers,
@@ -32,6 +48,9 @@ export default function SettingsManager({
  const t = translations[lang];
 
  const [hapticsOn, setHapticsOn] = useState(() => localStorage.getItem('haptics') === 'true');
+  const [confirmAction, setConfirmAction] = useState<any>(null);
+  const [isDismissed, setIsDismissed] = useState(() => localStorage.getItem('install_card_dismissed') === 'true');
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
  const toggleHaptics = () => {
  const newVal = !hapticsOn;
@@ -188,7 +207,31 @@ export default function SettingsManager({
  </div>
  </div>
 
- {/* 3. BUSINESS LEDGER INSIGHT STATISTICS */}
+   {/* SWIPE GESTURES TOGGLE CARD */}
+  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl shadow-md space-y-4">
+  <div className="flex items-center justify-between">
+    <div>
+      <h2 className="text-xl font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+        {lang === 'bn' ? 'স্লাইড জেসচার' : 'Swipe Gestures'}
+      </h2>
+      <p className="text-sm text-zinc-555 dark:text-zinc-400 mt-1">
+        {lang === 'bn' ? 'টেনে রিমাইন্ডার পাঠানো বা ডিলিট করা' : 'Swipe to remind or delete customers'}
+      </p>
+    </div>
+    <button
+      onClick={() => onSwipeGesturesToggle(!swipeGesturesEnabled)}
+      className={`w-14 h-8 flex items-center rounded-full p-1 cursor-pointer transition-colors ${
+        swipeGesturesEnabled ? 'bg-emerald-500' : 'bg-zinc-200 dark:bg-zinc-700'
+      }`}
+    >
+      <div className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform ${
+        swipeGesturesEnabled ? 'translate-x-6' : 'translate-x-0'
+      }`} />
+    </button>
+  </div>
+  </div>
+
+  {/* 3. BUSINESS LEDGER INSIGHT STATISTICS */}
  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl shadow-md space-y-4">
  <h3 className="text-lg font-bold text-zinc-850 dark:text-white uppercase tracking-wider">
  {t.ledgerInsights}
@@ -264,9 +307,20 @@ export default function SettingsManager({
  </button>
  </div>
 
- {/* 6. NATIVE PWA INSTALL APP */}
- {deferredPrompt && (
-    <div className="bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 p-6 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+  {/* 6. NATIVE PWA INSTALL APP */}
+  {!isDismissed && !isStandalone && deferredPrompt && (
+     <div className="relative bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 p-6 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+       {/* Dismiss Button */}
+       <button 
+         onClick={() => {
+           localStorage.setItem('install_card_dismissed', 'true');
+           setIsDismissed(true);
+         }}
+         className="absolute top-3 right-3 p-1 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 rounded-full cursor-pointer transition-colors"
+         title={lang === 'bn' ? 'বন্ধ করুন' : 'Dismiss'}
+       >
+         <X className="w-4 h-4 text-emerald-600 dark:text-emerald-500" />
+       </button>
       <div>
         <div className="text-xs font-bold text-emerald-600 dark:text-emerald-500 uppercase tracking-wide">
           {lang === 'bn' ? 'অ্যাপ ইনস্টল করুন' : 'Install App'}
@@ -296,6 +350,223 @@ export default function SettingsManager({
     </div>
   )}
 
- </div>
+ 
+
+  {/* TRASH / DELETED CUSTOMER ACCOUNTS CARD */}
+  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl shadow-md space-y-4">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div>
+        <h2 className="text-xl font-bold text-rose-600 dark:text-rose-455 flex items-center gap-2">
+          <Trash2 className="w-5 h-5" />
+          {lang === 'bn' ? 'অস্থায়ী ট্র্যাশ (মুছে ফেলা গ্রাহক)' : 'Trash (Deleted Customers)'}
+        </h2>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+          {lang === 'bn' 
+            ? 'ভুলবশত মুছে ফেলা গ্রাহক এখান থেকে উদ্ধার করা যাবে। ৭ দিন পর স্থায়ীভাবে ডিলিট হবে।' 
+            : 'Recover mistakenly deleted customers. Items are automatically permanently deleted after 7 days.'}
+        </p>
+      </div>
+
+      {trashCustomers.length > 0 && (
+        <button
+          onClick={() => setConfirmAction({ type: 'empty_trash' })}
+          className="px-4 py-2 border-2 border-rose-500 hover:bg-rose-500 hover:text-white dark:hover:text-zinc-950 font-bold text-rose-500 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          {lang === 'bn' ? 'ট্র্যাশ খালি করুন' : 'Empty Trash'}
+        </button>
+      )}
+    </div>
+
+    {trashCustomers.length > 0 ? (
+      <div className="space-y-3 pt-2 max-h-96 overflow-y-auto pr-1">
+        {trashCustomers.map(c => {
+          const deletionTime = c.deletedAt ? new Date(c.deletedAt).getTime() : new Date().getTime();
+          const msPassed = new Date().getTime() - deletionTime;
+          const daysRemaining = Math.max(1, 7 - Math.floor(msPassed / (24 * 60 * 60 * 1000)));
+
+          return (
+            <div 
+              key={c.id} 
+              className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors"
+            >
+              <div className="min-w-0">
+                <div className="text-base font-bold text-zinc-900 dark:text-white truncate">
+                  {c.name}
+                </div>
+                <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  {c.phone || (lang === 'bn' ? '(ফোন নম্বর নেই)' : '(No phone)')}
+                </div>
+                <div className="text-xs font-semibold text-rose-500 mt-1">
+                  {lang === 'bn' 
+                    ? `স্থায়ীভাবে মুছতে ${formatNumber(daysRemaining, 'bn')} দিন বাকি` 
+                    : `${daysRemaining} ${daysRemaining === 1 ? 'day' : 'days'} remaining`}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0">
+                <div className="text-left sm:text-right">
+                  <div className="text-3xs font-bold text-zinc-400 uppercase tracking-wide">
+                    {lang === 'bn' ? 'ব্যালেন্স' : 'Balance'}
+                  </div>
+                  <div className={`text-base font-black ${
+                    c.outstandingDue > 0 
+                      ? 'text-rose-600 dark:text-rose-455' 
+                      : c.outstandingDue < 0 
+                        ? 'text-cyan-600 dark:text-cyan-400' 
+                        : 'text-zinc-400 dark:text-zinc-500'
+                  }`}>
+                    ৳ {formatNumber(c.outstandingDue || 0, lang)}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setConfirmAction({ type: 'restore', customer: c })}
+                    title={lang === 'bn' ? 'পুনরুদ্ধার করুন' : 'Restore'}
+                    className="p-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-650 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 dark:text-emerald-450 rounded-lg transition-colors cursor-pointer flex items-center justify-center"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setConfirmAction({ type: 'delete_perm', customer: c })}
+                    title={lang === 'bn' ? 'স্থায়ীভাবে মুছুন' : 'Delete Permanently'}
+                    className="p-2.5 bg-rose-50 hover:bg-rose-100 text-rose-655 dark:bg-rose-950/20 dark:hover:bg-rose-950/40 dark:text-rose-455 rounded-lg transition-colors cursor-pointer flex items-center justify-center"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    ) : (
+      <div className="p-8 text-center bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 text-zinc-400 text-sm font-semibold">
+        {lang === 'bn' ? 'ট্র্যাশ খালি আছে' : 'Trash is empty'}
+      </div>
+    )}
+  </div>
+
+  {/* Trash Action Confirmation Modal */}
+  {confirmAction && (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80">
+      <motion.div
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white dark:bg-zinc-900 w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
+      >
+        <div className="text-center mb-6">
+          <div className={"w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 " + (
+            confirmAction.type === 'restore' 
+              ? 'bg-emerald-100 dark:bg-emerald-900/30' 
+              : 'bg-rose-100 dark:bg-rose-900/30'
+          )}>
+            {confirmAction.type === 'restore' ? (
+              <RotateCcw className="w-8 h-8 text-emerald-600 dark:text-emerald-500" />
+            ) : (
+              <AlertTriangle className="w-8 h-8 text-rose-600 dark:text-rose-500" />
+            )}
+          </div>
+          
+          <h3 className={"text-lg font-black mb-2 " + (
+            confirmAction.type === 'restore' 
+              ? 'text-emerald-600 dark:text-emerald-455' 
+              : 'text-rose-600 dark:text-rose-455'
+          )}>
+            {confirmAction.type === 'empty_trash' && (lang === 'bn' ? 'ট্র্যাশ সম্পূর্ণ খালি করুন' : 'Empty Trash')}
+            {confirmAction.type === 'restore' && (lang === 'bn' ? 'গ্রাহক অ্যাকাউন্ট পুনরুদ্ধার' : 'Restore Customer Account')}
+            {confirmAction.type === 'delete_perm' && (lang === 'bn' ? 'স্থায়ীভাবে মুছে ফেলুন' : 'Delete Account Permanently')}
+          </h3>
+          
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            {confirmAction.type === 'empty_trash' && (
+              lang === 'bn' 
+                ? 'আপনি কি নিশ্চিত সব ট্র্যাশ স্থায়ীভাবে খালি করতে চান? এই হিসাব আর কখনো ফিরে পাওয়া যাবে না!' 
+                : 'Are you sure you want to permanently empty the trash? All customer profiles, ledger entries, and reminders will be deleted forever!'
+            )}
+            {confirmAction.type === 'restore' && (
+              lang === 'bn' 
+                ? 'আপনি কি নিশ্চিত এই গ্রাহকের সম্পূর্ণ অ্যাকাউন্ট এবং আগের লেনদেনের বিবরণ পুনরুদ্ধার করতে চান?' 
+                : 'Are you sure you want to restore this customer account and all their historical transactions?'
+            )}
+            {confirmAction.type === 'delete_perm' && (
+              lang === 'bn' 
+                ? 'আপনি কি নিশ্চিত এই গ্রাহকের অ্যাকাউন্টটি স্থায়ীভাবে মুছে ফেলতে চান? এটি আর পুনরুদ্ধার করা সম্ভব হবে না!' 
+                : 'Are you sure you want to permanently delete this customer account? All ledger entries and reminders will be lost forever.'
+            )}
+          </p>
+          
+          {/* Details Card */}
+          {confirmAction.customer && (
+            <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 text-left space-y-2.5 mt-4">
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'নাম' : 'Name'}</span>
+                <span className="text-sm font-extrabold text-zinc-800 dark:text-zinc-200 truncate max-w-[200px]">{confirmAction.customer.name}</span>
+              </div>
+              {confirmAction.customer.phone && (
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'মোবাইল' : 'Mobile'}</span>
+                  <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">{confirmAction.customer.phone}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'বর্তমান ব্যালেন্স' : 'Current Balance'}</span>
+                <span className={"text-sm font-black " + (
+                  confirmAction.customer.outstandingDue > 0 
+                    ? 'text-rose-600 dark:text-rose-455' 
+                    : confirmAction.customer.outstandingDue < 0 
+                      ? 'text-cyan-600 dark:text-cyan-400' 
+                      : 'text-zinc-500'
+                )}>
+                  {confirmAction.customer.outstandingDue === 0 ? (lang === 'bn' ? 'পরিশোধিত' : 'Settled') : "৳ " + formatNumber(confirmAction.customer.outstandingDue, lang)}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+        
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={async () => {
+              const type = confirmAction.type;
+              const customer = confirmAction.customer;
+              setConfirmAction(null);
+              
+              if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+              
+              if (type === 'empty_trash') {
+                await emptyTrash();
+                toast.success(lang === 'bn' ? 'ট্র্যাশ সফলভাবে খালি করা হয়েছে' : 'Trash emptied successfully');
+              } else if (type === 'restore' && customer) {
+                await restoreCustomer(customer.id);
+                toast.success(lang === 'bn' ? 'গ্রাহক পুনরুদ্ধার করা হয়েছে' : 'Customer restored successfully');
+              } else if (type === 'delete_perm' && customer) {
+                await permanentlyDeleteCustomer(customer.id);
+                toast.success(lang === 'bn' ? 'গ্রাহক স্থায়ীভাবে ডিলিট হয়েছে' : 'Customer permanently deleted');
+              }
+            }}
+            className={"w-full py-4 text-white font-bold rounded-xl cursor-pointer " + (
+              confirmAction.type === 'restore' 
+                ? 'bg-emerald-600 hover:bg-emerald-700' 
+                : 'bg-rose-600 hover:bg-rose-700'
+            )}
+          >
+            {confirmAction.type === 'restore' && (lang === 'bn' ? 'হ্যাঁ, পুনরুদ্ধার করুন' : 'Yes, Restore')}
+            {confirmAction.type === 'empty_trash' && (lang === 'bn' ? 'হ্যাঁ, খালি করুন' : 'Yes, Empty Trash')}
+            {confirmAction.type === 'delete_perm' && (lang === 'bn' ? 'হ্যাঁ, স্থায়ীভাবে মুছুন' : 'Yes, Delete Permanently')}
+          </button>
+          
+          <button
+            onClick={() => setConfirmAction(null)}
+            className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer"
+          >
+            {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )}
+  </div>
  );
 }

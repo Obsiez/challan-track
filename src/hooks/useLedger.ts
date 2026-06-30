@@ -17,6 +17,7 @@ import { Customer, Transaction, Reminder, UserSettings } from '../types';
 
 export function useLedger(userId: string | undefined) {
  const [customers, setCustomers] = useState<Customer[]>([]);
+ const [trashCustomers, setTrashCustomers] = useState<Customer[]>([]);
  const [transactions, setTransactions] = useState<Transaction[]>([]);
  const [reminders, setReminders] = useState<Reminder[]>([]);
  const [settings, setSettings] = useState<UserSettings | null>(null);
@@ -33,13 +34,17 @@ export function useLedger(userId: string | undefined) {
  const storedSettings = localStorage.getItem(`easy_due_settings_${userId}`);
 
  if (storedCustomers) {
- setCustomers(JSON.parse(storedCustomers).map((c: any) => ({
+ const parsed = JSON.parse(storedCustomers).map((c: any) => ({
  ...c,
  createdAt: new Date(c.createdAt),
- updatedAt: new Date(c.updatedAt)
- })));
+ updatedAt: new Date(c.updatedAt),
+ deletedAt: c.deletedAt ? new Date(c.deletedAt) : null
+ }));
+ setCustomers(parsed.filter((c: any) => !c.isDeleted));
+ setTrashCustomers(parsed.filter((c: any) => c.isDeleted));
  } else {
  setCustomers([]);
+ setTrashCustomers([]);
  }
 
  if (storedTxs) {
@@ -195,19 +200,21 @@ export function useLedger(userId: string | undefined) {
  setLoading(true);
  }
  const unsubscribe = onSnapshot(q, (snapshot) => {
- const list: Customer[] = [];
- snapshot.forEach((docSnap) => {
- const data = docSnap.data();
- list.push({
- ...data,
- id: docSnap.id,
- createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
- updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt),
- } as Customer);
- });
- setCustomers(list);
- saveLocalCustomers(list);
- setLoading(false);
+  const list: Customer[] = [];
+  snapshot.forEach((docSnap) => {
+  const data = docSnap.data();
+  list.push({
+  ...data,
+  id: docSnap.id,
+  createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
+  updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt),
+  deletedAt: data.deletedAt?.toDate ? data.deletedAt.toDate() : (data.deletedAt ? new Date(data.deletedAt) : null)
+  } as Customer);
+  });
+  setCustomers(list.filter(c => !c.isDeleted));
+  setTrashCustomers(list.filter(c => c.isDeleted));
+  saveLocalCustomers(list);
+  setLoading(false);
  }, (error) => {
  console.warn("Firestore error syncing customers list, using offline cache fallback:", error);
  loadLocalData();
@@ -549,71 +556,181 @@ export function useLedger(userId: string | undefined) {
  }
  };
 
- // Delete a customer, all their transactions, and all their reminders (Cleanup)
- const deleteCustomer = async (customerId: string) => {
- if (!userId) return;
- const updatedCustomers = customers.filter(c => c.id !== customerId);
- const updatedTxs = transactions.filter(t => t.customerId !== customerId);
- const updatedReminders = reminders.filter(r => r.customerId !== customerId);
+  // Delete a customer (soft delete to Trash)
+  const deleteCustomer = async (customerId: string) => {
+    if (!userId) return;
+    const customer = customers.find(c => c.id === customerId);
+    if (!customer) return;
 
- setCustomers(updatedCustomers);
- setTransactions(updatedTxs);
- setReminders(updatedReminders);
+    const deletedCustomer = { ...customer, isDeleted: true, deletedAt: new Date() };
 
- saveLocalCustomers(updatedCustomers);
- saveLocalTransactions(updatedTxs);
- saveLocalReminders(updatedReminders);
+    const updatedCustomers = customers.filter(c => c.id !== customerId);
+    const updatedTrash = [deletedCustomer, ...trashCustomers];
 
- if (userId === 'local-guest-session' || isOfflineFallback) {
- return;
- }
+    setCustomers(updatedCustomers);
+    setTrashCustomers(updatedTrash);
+    saveLocalCustomers([...updatedCustomers, ...updatedTrash]);
 
- const customerDocRef = doc(db, 'users', userId, 'customers', customerId);
- const relatedTxs = transactions.filter(t => t.customerId === customerId);
- const relatedReminders = reminders.filter(r => r.customerId === customerId);
+    if (userId === 'local-guest-session' || isOfflineFallback) {
+      return;
+    }
 
- const batch = writeBatch(db);
- batch.delete(customerDocRef);
- relatedTxs.forEach(tx => {
- batch.delete(doc(db, 'users', userId, 'transactions', tx.id));
- });
- relatedReminders.forEach(rem => {
- batch.delete(doc(db, 'users', userId, 'reminders', rem.id));
- });
+    const customerDocRef = doc(db, 'users', userId, 'customers', customerId);
+    try {
+      await updateDoc(customerDocRef, {
+        isDeleted: true,
+        deletedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.warn("Firestore soft deleteCustomer failed, saved locally:", err);
+    }
+  };
 
- try {
- await batch.commit();
- } catch (err) {
- console.warn("Firestore deleteCustomer failed, saved locally:", err);
- }
- };
+  // Restore a customer from Trash
+  const restoreCustomer = async (customerId: string) => {
+    if (!userId) return;
+    const customer = trashCustomers.find(c => c.id === customerId);
+    if (!customer) return;
 
- const updateCustomerDetails = async (customerId: string, name: string, phone: string) => {
- if (!userId) return;
- const trimmedName = name.trim();
- const trimmedPhone = phone.trim();
+    const restoredCustomer = { ...customer, isDeleted: false, deletedAt: null };
 
- const updatedList = customers.map(c => 
- c.id === customerId ? { ...c, name: trimmedName, phone: trimmedPhone, updatedAt: new Date() } : c
- );
- setCustomers(updatedList);
- saveLocalCustomers(updatedList);
+    const updatedTrash = trashCustomers.filter(c => c.id !== customerId);
+    const updatedCustomers = [restoredCustomer, ...customers];
 
- if (userId === 'local-guest-session' || isOfflineFallback) {
- return;
- }
+    setCustomers(updatedCustomers);
+    setTrashCustomers(updatedTrash);
+    saveLocalCustomers([...updatedCustomers, ...updatedTrash]);
 
- const customerDocRef = doc(db, 'users', userId, 'customers', customerId);
- try {
- await updateDoc(customerDocRef, {
- name: trimmedName,
- phone: trimmedPhone,
- updatedAt: serverTimestamp()
- });
- } catch (err) {
- console.warn("Firestore updateCustomerDetails failed, saved locally:", err);
- }
- };
+    if (userId === 'local-guest-session' || isOfflineFallback) {
+      return;
+    }
+
+    const customerDocRef = doc(db, 'users', userId, 'customers', customerId);
+    try {
+      await updateDoc(customerDocRef, {
+        isDeleted: false,
+        deletedAt: null
+      });
+    } catch (err) {
+      console.warn("Firestore restoreCustomer failed, saved locally:", err);
+    }
+  };
+
+  // Permanently delete a customer, their transactions, and reminders
+  const permanentlyDeleteCustomer = async (customerId: string) => {
+    if (!userId) return;
+
+    const updatedTrash = trashCustomers.filter(c => c.id !== customerId);
+    const updatedCustomers = customers.filter(c => c.id !== customerId);
+
+    setCustomers(updatedCustomers);
+    setTrashCustomers(updatedTrash);
+    saveLocalCustomers([...updatedCustomers, ...updatedTrash]);
+
+    const updatedTxs = transactions.filter(t => t.customerId !== customerId);
+    const updatedReminders = reminders.filter(r => r.customerId !== customerId);
+    setTransactions(updatedTxs);
+    setReminders(updatedReminders);
+    saveLocalTransactions(updatedTxs);
+    saveLocalReminders(updatedReminders);
+
+    if (userId === 'local-guest-session' || isOfflineFallback) {
+      return;
+    }
+
+    const customerDocRef = doc(db, 'users', userId, 'customers', customerId);
+    const relatedTxs = transactions.filter(t => t.customerId === customerId);
+    const relatedReminders = reminders.filter(r => r.customerId === customerId);
+
+    const batch = writeBatch(db);
+    batch.delete(customerDocRef);
+    relatedTxs.forEach(tx => {
+      batch.delete(doc(db, 'users', userId, 'transactions', tx.id));
+    });
+    relatedReminders.forEach(rem => {
+      batch.delete(doc(db, 'users', userId, 'reminders', rem.id));
+    });
+
+    try {
+      await batch.commit();
+    } catch (err) {
+      console.warn("Firestore permanentlyDeleteCustomer failed, saved locally:", err);
+    }
+  };
+
+  // Empty the entire Trash
+  const emptyTrash = async () => {
+    if (!userId) return;
+
+    const idsToDelete = trashCustomers.map(c => c.id);
+
+    setTrashCustomers([]);
+    saveLocalCustomers(customers);
+
+    const updatedTxs = transactions.filter(t => !idsToDelete.includes(t.customerId));
+    const updatedReminders = reminders.filter(r => !idsToDelete.includes(r.customerId));
+    setTransactions(updatedTxs);
+    setReminders(updatedReminders);
+    saveLocalTransactions(updatedTxs);
+    saveLocalReminders(updatedReminders);
+
+    if (userId === 'local-guest-session' || isOfflineFallback) {
+      return;
+    }
+
+    try {
+      for (const customerId of idsToDelete) {
+        const customerDocRef = doc(db, 'users', userId, 'customers', customerId);
+        const relatedTxs = transactions.filter(t => t.customerId === customerId);
+        const relatedReminders = reminders.filter(r => r.customerId === customerId);
+
+        const batch = writeBatch(db);
+        batch.delete(customerDocRef);
+        relatedTxs.forEach(tx => {
+          batch.delete(doc(db, 'users', userId, 'transactions', tx.id));
+        });
+        relatedReminders.forEach(rem => {
+          batch.delete(doc(db, 'users', userId, 'reminders', rem.id));
+        });
+        await batch.commit();
+      }
+    } catch (err) {
+      console.warn("Firestore emptyTrash failed, saved locally:", err);
+    }
+  };
+
+  const updateCustomerDetails = async (customerId: string, name: string, phone: string) => {
+    if (!userId) return;
+    const trimmedName = name.trim();
+    const trimmedPhone = phone.trim();
+
+    // Check for duplicate name excluding the customer being updated
+    const isDuplicate = customers.some(c => c.id !== customerId && c.name.toLowerCase() === trimmedName.toLowerCase());
+    if (isDuplicate) {
+      throw new Error('DUPLICATE_NAME');
+    }
+
+    const updatedList = customers.map(c => 
+      c.id === customerId ? { ...c, name: trimmedName, phone: trimmedPhone, updatedAt: new Date() } : c
+    );
+    setCustomers(updatedList);
+    saveLocalCustomers(updatedList);
+
+    if (userId === 'local-guest-session' || isOfflineFallback) {
+      return;
+    }
+
+    const customerDocRef = doc(db, 'users', userId, 'customers', customerId);
+    try {
+      await updateDoc(customerDocRef, {
+        name: trimmedName,
+        phone: trimmedPhone,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.warn("Firestore updateCustomerDetails failed, saved locally:", err);
+    }
+  };
 
   // Edit a transaction
   const editTransaction = async (
@@ -705,23 +822,47 @@ export function useLedger(userId: string | undefined) {
     }
   };
 
- return {
- customers,
- transactions,
- reminders,
- settings,
- loading,
- isOfflineFallback,
- updateTheme,
- updateSettings,
- createCustomer,
- updateCustomerDetails,
- addTransaction,
- editTransaction,
- deleteTransaction,
- addReminder,
- toggleReminder,
- deleteReminder,
- deleteCustomer
- };
+  // 5. Automatic cleanup of trashed items older than 7 days
+  useEffect(() => {
+    if (!userId || loading || trashCustomers.length === 0) return;
+
+    const now = new Date().getTime();
+    const sevenDaysInMs = 7 * 24 * 60 * 60 * 1000;
+    
+    const expiredCustomers = trashCustomers.filter(c => {
+      if (!c.deletedAt) return false;
+      const deletedTime = new Date(c.deletedAt).getTime();
+      return (now - deletedTime) > sevenDaysInMs;
+    });
+
+    if (expiredCustomers.length > 0) {
+      expiredCustomers.forEach(c => {
+        permanentlyDeleteCustomer(c.id);
+      });
+    }
+  }, [userId, loading, trashCustomers]);
+
+  return {
+    customers,
+    trashCustomers,
+    transactions: transactions.filter(t => customers.some(c => c.id === t.customerId)),
+    reminders: reminders.filter(r => customers.some(c => c.id === r.customerId)),
+    settings,
+    loading,
+    isOfflineFallback,
+    updateTheme,
+    updateSettings,
+    createCustomer,
+    updateCustomerDetails,
+    addTransaction,
+    editTransaction,
+    deleteTransaction,
+    addReminder,
+    toggleReminder,
+    deleteReminder,
+    deleteCustomer,
+    restoreCustomer,
+    permanentlyDeleteCustomer,
+    emptyTrash
+  };
 }

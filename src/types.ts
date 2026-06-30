@@ -15,6 +15,8 @@ export interface Customer {
  outstandingDue: number; // calculated balance sum
  createdAt: any;
  updatedAt: any;
+ isDeleted?: boolean;
+ deletedAt?: any;
 }
 
 export interface Transaction {

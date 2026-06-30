@@ -1,57 +1,101 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Customer, Transaction } from '../types';
 import { 
- TrendingUp, Users, ClipboardList, ArrowUpRight, ArrowDownLeft 
+  TrendingUp, Users, ClipboardList, ArrowUpRight, ArrowDownLeft, ArrowRight
 } from 'lucide-react';
 import { translations, formatNumber, Language } from '../lib/translations';
 import AnalyticsManager from './AnalyticsManager';
 
+const parseFirestoreDate = (dateVal: any): Date => {
+  if (!dateVal) return new Date();
+  if (dateVal instanceof Date) return dateVal;
+  if (typeof dateVal.toDate === 'function') return dateVal.toDate();
+  if (dateVal.seconds !== undefined) return new Date(dateVal.seconds * 1000);
+  const parsed = new Date(dateVal);
+  return isNaN(parsed.getTime()) ? new Date() : parsed;
+};
+
 interface DashboardProps {
- customers: Customer[];
- transactions: Transaction[];
- onOpenQuickEntry: () => void;
- onSelectCustomer: (id: string) => void;
- lang: Language;
+  customers: Customer[];
+  transactions: Transaction[];
+  onOpenQuickEntry: () => void;
+  onSelectCustomer: (id: string) => void;
+  lang: Language;
+  onViewDailyTxs: () => void;
 }
 
 export default function Dashboard({
- customers,
- transactions,
- onOpenQuickEntry,
- onSelectCustomer,
- lang
+  customers,
+  transactions,
+  onOpenQuickEntry,
+  onSelectCustomer,
+  lang,
+  onViewDailyTxs
 }: DashboardProps) {
  const t = translations[lang];
+  const [isFlipped, setIsFlipped] = useState(false);
  
  // Calculate statistics
- const stats = useMemo(() => {
- const totalOutstanding = customers.reduce((sum, c) => sum + (c.outstandingDue > 0 ? c.outstandingDue : 0), 0);
- const activeDebtorsCount = customers.filter(c => c.outstandingDue > 0).length;
+  const [activeSlide, setActiveSlide] = useState(0); // 0 = Collectible, 1 = Overpaid
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
 
- const midnight = new Date();
- midnight.setHours(0, 0, 0, 0);
+  const onTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
 
- const todayTxs = transactions.filter(tx => {
- const txDate = new Date(tx.date);
- return txDate >= midnight;
- });
+  const onTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
 
- const duesToday = todayTxs
- .filter(tx => tx.type === 'due')
- .reduce((sum, tx) => sum + tx.amount, 0);
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > 50;
+    const isRightSwipe = distance < -50;
+    if (isLeftSwipe && activeSlide === 0) {
+      if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(15);
+      setActiveSlide(1);
+    }
+    if (isRightSwipe && activeSlide === 1) {
+      if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(15);
+      setActiveSlide(0);
+    }
+  };
 
- const paymentsToday = todayTxs
- .filter(tx => tx.type === 'payment')
- .reduce((sum, tx) => sum + tx.amount, 0);
+  const stats = useMemo(() => {
+    const totalOutstanding = customers.reduce((sum, c) => sum + (c.outstandingDue > 0 ? c.outstandingDue : 0), 0);
+    const activeDebtorsCount = customers.filter(c => c.outstandingDue > 0).length;
+    const totalOverpaid = customers.reduce((sum, c) => sum + (c.outstandingDue < 0 ? Math.abs(c.outstandingDue) : 0), 0);
+    const activeCreditorsCount = customers.filter(c => c.outstandingDue < 0).length;
 
- return {
- totalOutstanding,
- activeDebtorsCount,
- duesToday,
- paymentsToday,
- todayTxs
- };
- }, [customers, transactions]);
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+
+    const todayTxs = transactions.filter(tx => {
+      const txDate = parseFirestoreDate(tx.date);
+      return txDate >= midnight;
+    });
+
+    const duesToday = todayTxs
+      .filter(tx => tx.type === 'due')
+      .reduce((sum, tx) => sum + tx.amount, 0);
+
+    const paymentsToday = todayTxs
+      .filter(tx => tx.type === 'payment')
+      .reduce((sum, tx) => sum + tx.amount, 0);
+
+    return {
+      totalOutstanding,
+      activeDebtorsCount,
+      totalOverpaid,
+      activeCreditorsCount,
+      duesToday,
+      paymentsToday,
+      todayTxs
+    };
+  }, [customers, transactions]);
 
  // Payment capture percentage for progress ring
  const paymentRatio = useMemo(() => {
@@ -65,52 +109,52 @@ export default function Dashboard({
     className="space-y-6 no-select animate-reveal"
   >
  
- {/* 1. MAIN OUTSTANDING LEDGER HERO (GIANT CLEAR NUMBERS) */}
- <div 
- className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-lg relative overflow-hidden"
- >
- <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 bg-zinc-400/5 dark:bg-white/5 w-64 h-64 rounded-full blur-2xl"></div>
- 
- <div className="space-y-1 relative z-10">
- <span className="text-xs font-bold tracking-wider text-zinc-500 dark:text-zinc-400 uppercase">
- {t.totalOutstanding}
- </span>
- <div className="flex items-baseline gap-2">
- <span className="text-4xl sm:text-5xl font-black text-zinc-900 dark:text-white">
- ৳ {formatNumber(stats.totalOutstanding, lang)}
- </span>
- <span className="text-xs text-zinc-500 dark:text-zinc-400 font-bold uppercase">{lang === 'bn' ? 'বকেয়া' : 'collectible'}</span>
- </div>
- </div>
+    {/* 1. MAIN OUTSTANDING LEDGER HERO (GIANT CLEAR NUMBERS) */}
+  <div 
+    className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 sm:p-8 shadow-lg relative overflow-hidden"
+  >
+    <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 bg-zinc-400/5 dark:bg-white/5 w-64 h-64 rounded-full blur-2xl"></div>
+    
+    <div className="space-y-1 relative z-10">
+      <span className="text-xs font-bold tracking-wider text-zinc-500 dark:text-zinc-400 uppercase">
+        {t.totalOutstanding}
+      </span>
+      <div className="flex items-baseline gap-2">
+        <span className="text-4xl sm:text-5xl font-black text-zinc-900 dark:text-white">
+          ৳ {formatNumber(stats.totalOutstanding, lang)}
+        </span>
+        <span className="text-xs text-zinc-500 dark:text-zinc-400 font-bold uppercase">{lang === 'bn' ? 'বকেয়া' : 'collectible'}</span>
+      </div>
+    </div>
 
- <div className="grid grid-cols-2 gap-4 mt-8 pt-6 border-t-2 border-dotted border-zinc-300 dark:border-zinc-700 relative z-10">
- <div className="flex items-center gap-3">
- <div className="p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800/50 text-amber-600 dark:text-amber-500">
- <Users className="w-5 h-5" />
- </div>
- <div>
- <div className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-white">
- {formatNumber(stats.activeDebtorsCount, lang)}
- </div>
- <div className="text-xs text-zinc-500 dark:text-zinc-400">{t.debtorsCount}</div>
- </div>
- </div>
+    <div className="grid grid-cols-2 gap-4 mt-8 pt-6 border-t-2 border-dotted border-zinc-300 dark:border-zinc-700 relative z-10">
+      <div className="flex items-center gap-3">
+        <div className="p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800/50 text-amber-600 dark:text-amber-500">
+          <Users className="w-5 h-5" />
+        </div>
+        <div>
+          <div className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-white">
+            {formatNumber(stats.activeDebtorsCount, lang)}
+          </div>
+          <div className="text-xs text-zinc-500 dark:text-zinc-400">{t.debtorsCount}</div>
+        </div>
+      </div>
 
- <div className="flex items-center gap-3">
- <div className="p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800/50 text-emerald-600 dark:text-emerald-400">
- <TrendingUp className="w-5 h-5" />
- </div>
- <div>
- <div className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-white">
- {formatNumber(transactions.length, lang)}
- </div>
- <div className="text-xs text-zinc-500 dark:text-zinc-400">{t.totalTransactions}</div>
- </div>
- </div>
- </div>
- </div>
+      <div className="flex items-center gap-3">
+        <div className="p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800/50 text-emerald-600 dark:text-emerald-400">
+          <TrendingUp className="w-5 h-5" />
+        </div>
+        <div>
+          <div className="text-lg sm:text-xl font-bold text-zinc-900 dark:text-white">
+            {formatNumber(transactions.length, lang)}
+          </div>
+          <div className="text-xs text-zinc-500 dark:text-zinc-400">{t.totalTransactions}</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
- {/* 2. TODAY'S TOTALS (DASHBOARD AT A GLANCE) */}
+  {/* 2. TODAY'S TOTALS (DASHBOARD AT A GLANCE) */}
  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
  
  {/* Dues Added Today card */}
@@ -193,16 +237,23 @@ export default function Dashboard({
 
  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-md">
  {stats.todayTxs.length === 0 ? (
- <div className="p-8 text-center text-zinc-400 dark:text-zinc-500 flex flex-col items-center gap-3">
- <ClipboardList className="w-12 h-12 stroke-[1.5]" />
- <div>
- <p className="font-bold text-base text-zinc-700 dark:text-zinc-300">{t.noActivity}</p>
- <p className="text-xs mt-1">{t.recentPayments}</p>
- </div>
- </div>
- ) : (
+  <div className="p-8 text-center text-zinc-400 dark:text-zinc-500 flex flex-col items-center gap-3">
+    <ClipboardList className="w-12 h-12 stroke-[1.5]" />
+    <div>
+      <p className="font-bold text-base text-zinc-700 dark:text-zinc-300">{t.noActivity}</p>
+      <p className="text-xs mt-1">{t.recentPayments}</p>
+    </div>
+    <button
+      type="button"
+      onClick={onViewDailyTxs}
+      className="mt-2 px-4 py-2 text-xs font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 rounded-xl transition-colors cursor-pointer border border-emerald-250 dark:border-emerald-800"
+    >
+      {lang === 'bn' ? 'পুরানো বকেয়া ও আদায় দেখতে চান?' : 'Want to view older dues and payments?'}
+    </button>
+  </div>
+  ) : (
  <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
- {stats.todayTxs.map(tx => (
+ {stats.todayTxs.slice(0, 5).map(tx => (
  <div 
  key={tx.id}
  onClick={() => onSelectCustomer(tx.customerId)}
@@ -230,11 +281,21 @@ export default function Dashboard({
  {tx.type === 'due' ? '+' : '-'} ৳ {formatNumber(tx.amount, lang)}
  </div>
  <div className="text-2xs text-zinc-400 dark:text-zinc-500 font-bold uppercase mt-0.5">
- {new Date(tx.date).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+   {new Date(parseFirestoreDate(tx.date)).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
  </div>
  </div>
  </div>
  ))}
+           {stats.todayTxs.length > 0 && (
+            <div className="p-4 bg-zinc-50 dark:bg-zinc-850/50 flex justify-center">
+              <button 
+                onClick={onViewDailyTxs}
+                className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                {lang === 'bn' ? 'আজকের সব লেনদেন দেখুন' : 'View All Daily Transactions'} <ArrowRight className="w-3.5 h-3.5 ml-1" />
+              </button>
+            </div>
+          )}
  </div>
  )}
  </div>

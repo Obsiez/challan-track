@@ -77,7 +77,7 @@ export const translations = {
  duesVisibleHere: "Dues and payments logged will be visible here for auditable tracking.",
  dueTrigger: "Due entry logged",
  paymentTrigger: "Payment received",
- confirmDelete: "⚠️ Are you absolutely sure you want to delete this customer? This will permanently delete all their historical due ledger records and reminders.",
+ confirmDelete: "Are you absolutely sure you want to delete this customer? This will permanently delete all their historical due ledger records and reminders.",
 
  // Reminders Screen
  alarmTitle: "Timely Reminders",
@@ -95,7 +95,7 @@ export const translations = {
  scheduleOneNotice: "Schedule alert reminders above to make sure you follow up with clients on time.",
  activeAlert: "Active Alert",
  contactRegardingDue: "Contact details regarding outstanding due",
- vibrationDemo: "🔊 VIBRATION ATTEMPTED",
+ vibrationDemo: "VIBRATION ATTEMPTED",
  clearAlert: "Clear Alert",
  liveNotification: "Live Notification System",
 
@@ -207,9 +207,9 @@ export const translations = {
  statements: "আদায়ের খতিয়ান বিবরণ",
  noHistory: "এই গ্রাহকের খতিয়ানে কোনো পূর্ববর্তী লেনদেন নেই",
  duesVisibleHere: "লেনদেন এন্ট্রি করলে তা এখানে দেখা যাবে।",
- dueTrigger: "বাকি হিসাব রেকর্ড করা হয়েছে",
- paymentTrigger: "পেমেন্ট আদায় করা হয়েছে",
- confirmDelete: "⚠️ আপনি কি নিশ্চিতভাবে এই গ্রাহকের অ্যাকাউন্ট মুছতে চান? এটি করলে ওনার পূর্ববর্তী ও সমস্ত রিমাইন্ডার স্থায়ীভাবে মুছে যাবে।",
+ dueTrigger: "বকেয়া এন্ট্রি করা হয়েছে",
+ paymentTrigger: "পেমেন্ট গ্রহণ করা হয়েছে",
+ confirmDelete: "আপনি কি নিশ্চিতভাবে এই গ্রাহকের অ্যাকাউন্ট মুছতে চান? এটি করলে ওনার পূর্ববর্তী ও সমস্ত রিমাইন্ডার স্থায়ীভাবে মুছে যাবে।",
 
  // Reminders Screen
  alarmTitle: "সঠিক সময়ে পেমেন্ট অ্যালার্ট রিমাইন্ডার",
@@ -227,7 +227,7 @@ export const translations = {
  scheduleOneNotice: "সময়মতো যোগাযোগ নিশ্চিত করতে উপরে গ্রাহকের জন্য রিমাইন্ডার সেট করে রাখুন।",
  activeAlert: "সক্রিয় অ্যালার্ট",
  contactRegardingDue: "বকেয়া পাওনা বিষয়ক তথ্য বিবরণী",
- vibrationDemo: "🔊 কম্পন চেষ্টা করা হয়েছে",
+ vibrationDemo: "কম্পন চেষ্টা করা হয়েছে",
  clearAlert: "অ্যালার্ট সরান",
  liveNotification: "সরাসরি নোটিফিকেশন সিস্টেম",
 

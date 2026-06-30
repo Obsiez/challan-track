@@ -7,6 +7,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { translations, formatNumber, Language } from '../lib/translations';
 import { toast } from 'sonner';
+import { showNotification } from '../lib/notifications';
 
 interface RemindersManagerProps {
  reminders: Reminder[];
@@ -85,21 +86,21 @@ export default function RemindersManager({
  // Trigger simulated alarm instantly for dad to test
  const triggerDemoAlert = () => {
  const randomPick = currentActiveReminders[0] || {
- customerName: lang === 'bn' ? 'সুরেখ আলী' : 'Suresh Rao',
+ customerName: lang === 'bn' ? 'ওয়াহিদ জামান' : 'Wahid Zaman',
  notes: lang === 'bn' ? 'বকেয়া ১২০০ টাকা পরিশোধের ফলো-আপ।' : 'Follow up on ৳1,200 pending due.'
  };
  
- const message = `🔔 ${lang === 'bn' ? 'খাতা রিমাইন্ডার' : 'LEDGER REMINDER'}: ${randomPick.customerName}! ${lang === 'bn' ? 'নোট' : 'Note'}: "${randomPick.notes}"`;
+ const message = `${lang === 'bn' ? 'খাতা রিমাইন্ডার' : 'LEDGER REMINDER'}: ${randomPick.customerName}! ${lang === 'bn' ? 'নোট' : 'Note'}: "${randomPick.notes}"`;
  setTestAlertText(message);
 
  // Try HTML5 browser notifications as well!
  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
- new Notification(lang === 'bn' ? "⏰ ইজি ডিউ ট্র্যাকার অ্যালার্ট" : "⏰ Challan Track Alert", {
- body: lang === 'bn' 
- ? `বকেয়া আদায়ের জন্য ${randomPick.customerName}-এর সাথে যোগাযোগ করতে মনে রাখুন!` 
- : `Remember to contact ${randomPick.customerName} for pending dues!`,
- icon: '/metadata.json' // path to load
- });
+  showNotification(lang === 'bn' ? "ইজি ডিউ ট্র্যাকার অ্যালার্ট" : "Challan Track Alert", {
+    body: lang === 'bn' 
+      ? `বকেয়া আদায়ের জন্য ${randomPick.customerName}-এর সাথে যোগাযোগ করতে মনে রাখুন!` 
+      : `Remember to contact ${randomPick.customerName} for pending dues!`,
+    icon: '/favicon.svg' // path to load
+  });
  }
 
  // Try Web Vibration API
@@ -131,7 +132,7 @@ export default function RemindersManager({
  </div>
  <p className="font-extrabold text-base md:text-lg leading-snug">{testAlertText}</p>
  <div className="flex items-center gap-2">
- <span className="text-2xs font-extrabold bg-zinc-950/20 px-3 py-1.5 rounded-lg">{t.vibrationDemo}</span>
+  <span className="text-2xs font-extrabold bg-zinc-950/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5"><Volume2 className="w-3.5 h-3.5 shrink-0" />{t.vibrationDemo}</span>
  <button 
  onClick={() => setTestAlertText(null)}
  className="ml-auto text-xs font-black bg-zinc-950 text-white px-4 py-2 rounded-xl"
@@ -212,7 +213,7 @@ export default function RemindersManager({
  <select
  value={selectedCustomerId}
  onChange={(e) => setSelectedCustomerId(e.target.value)}
- className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-850 dark:text-white text-base focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+ className="w-full px-4 py-3 bg-[#009966]/5 dark:bg-[#009966]/5 border-2 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966] rounded-xl text-zinc-850 dark:text-white text-base focus:outline-none transition-all"
  required
  >
  <option value="">{t.selectCustomerPrompt}</option>
@@ -229,7 +230,7 @@ export default function RemindersManager({
  placeholder="e.g. Call for rice payment"
  value={notes}
  onChange={(e) => setNotes(e.target.value)}
- className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-800 dark:text-white text-base focus:ring-2 focus:ring-emerald-500"
+ className="w-full px-4 py-3 bg-[#009966]/5 dark:bg-[#009966]/5 border-2 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966] rounded-xl text-zinc-850 dark:text-white text-base focus:outline-none transition-all"
  />
  </div>
 
@@ -239,7 +240,7 @@ export default function RemindersManager({
  type="date"
  value={dueDateStr}
  onChange={(e) => setDueDateStr(e.target.value)}
- className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-800 dark:text-white text-base focus:ring-2 focus:ring-emerald-500"
+ className="w-full px-4 py-3 bg-[#009966]/5 dark:bg-[#009966]/5 border-2 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966] rounded-xl text-zinc-850 dark:text-white text-base focus:outline-none transition-all"
  required
  />
  </div>
@@ -250,14 +251,19 @@ export default function RemindersManager({
  type="time"
  value={dueTimeStr}
  onChange={(e) => setDueTimeStr(e.target.value)}
- className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-800 dark:text-white text-base focus:ring-2 focus:ring-emerald-500"
+ className="w-full px-4 py-3 bg-[#009966]/5 dark:bg-[#009966]/5 border-2 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966] rounded-xl text-zinc-850 dark:text-white text-base focus:outline-none transition-all"
  required
  />
  </div>
 
  </div>
 
- {errorMsg && <div className="text-rose-500 text-sm font-semibold">⚠️ {errorMsg}</div>}
+  {errorMsg && (
+    <div className="text-rose-500 text-sm font-semibold flex items-center gap-1.5">
+      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+      <span>{errorMsg}</span>
+    </div>
+  )}
 
  <div className="flex justify-end gap-3 touch-target-height pt-2">
  <button

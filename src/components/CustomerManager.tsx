@@ -1,12 +1,197 @@
 import React, { useState, useMemo } from 'react';
 import { Customer, Transaction } from '../types';
 import { 
- Users, Search, UserPlus, Phone, ArrowUpRight, ArrowDownLeft, Trash2, 
- X, MessageSquare, Send, ReceiptText, ArrowLeft, Pencil
+  Users, Search, UserPlus, Phone, ArrowUpRight, ArrowDownLeft, Trash2, 
+  X, MessageSquare, Send, ReceiptText, ArrowLeft, Pencil, ChevronDown, ChevronUp, AlertTriangle
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useAnimation } from 'motion/react';
 import { translations, formatNumber, formatIndianNumberString, Language } from '../lib/translations';
 import { toast } from 'sonner';
+
+const WhatsAppIcon = () => (
+	<svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" className="shrink-0">
+		<path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.458 5.704 1.459h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+	</svg>
+);
+
+interface SwipeableCustomerItemProps {
+	customer: Customer;
+	lang: Language;
+	onClick: () => void;
+	isSelected: boolean;
+	onWhatsApp: () => void;
+	onDelete: () => void;
+	swipeGesturesEnabled: boolean;
+	isDeleting: boolean;
+	children: React.ReactNode;
+}
+
+const SwipeableCustomerItem = ({
+	customer,
+	lang,
+	onClick,
+	isSelected,
+	onWhatsApp,
+	onDelete,
+	swipeGesturesEnabled,
+	isDeleting,
+	children
+}: SwipeableCustomerItemProps) => {
+	const cardRef = React.useRef<HTMLDivElement>(null);
+	const controls = useAnimation();
+	const [startX, setStartX] = useState(0);
+	const [startY, setStartY] = useState(0);
+	const [isSwiping, setIsSwiping] = useState(false);
+	const [hasVibrated, setHasVibrated] = useState(false);
+	const [swipeDir, setSwipeDir] = useState<'left' | 'right' | null>(null);
+	const isSnappingRef = React.useRef(false);
+
+	React.useEffect(() => {
+		if (isDeleting) {
+			const cardWidth = cardRef.current?.offsetWidth || 350;
+			setSwipeDir('left');
+			controls.start({
+				x: -cardWidth * 0.4,
+				transition: { type: 'spring', stiffness: 300, damping: 15, mass: 0.6 }
+			});
+		} else {
+			controls.start({
+				x: 0,
+				transition: { type: 'spring', stiffness: 300, damping: 25 }
+			}).then(() => {
+				setSwipeDir(null);
+				setIsSwiping(false);
+			});
+		}
+	}, [isDeleting, controls]);
+
+	const handleSnap = (targetX: number) => {
+		if (isSnappingRef.current) return;
+		isSnappingRef.current = true;
+
+		// Rapidly accelerate card to targetX (underdamped spring physics: overshoot and bounce back)
+		controls.start({
+			x: targetX,
+			transition: { type: 'spring', stiffness: 350, damping: 15, mass: 0.6 }
+		}).then(() => {
+			if (targetX > 0) {
+				// WhatsApp action: trigger and close immediately
+				onWhatsApp();
+				controls.start({
+					x: 0,
+					transition: { type: 'spring', stiffness: 200, damping: 25 }
+				}).then(() => {
+					setSwipeDir(null);
+					setIsSwiping(false);
+					isSnappingRef.current = false;
+				});
+			} else {
+				// Delete action: trigger and let the isDeleting prop control the open state/closing
+				onDelete();
+				isSnappingRef.current = false;
+			}
+		});
+	};
+
+	const handleTouchStart = (e: React.TouchEvent) => {
+		if (!swipeGesturesEnabled || isSnappingRef.current || isDeleting) return;
+		setStartX(e.touches[0].clientX);
+		setStartY(e.touches[0].clientY);
+		setIsSwiping(false);
+		setHasVibrated(false);
+	};
+
+	const handleTouchMove = (e: React.TouchEvent) => {
+		if (!swipeGesturesEnabled || isSnappingRef.current || isDeleting) return;
+		const diffX = e.touches[0].clientX - startX;
+		const diffY = e.touches[0].clientY - startY;
+
+		if (!isSwiping) {
+			// Accidental diagonal scrolls check: require diffX to be greater than diffY, and at least 15px threshold to activate swipe.
+			if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 15) {
+				setIsSwiping(true);
+			}
+		}
+
+		if (isSwiping) {
+			const cardWidth = cardRef.current?.offsetWidth || 350;
+			const thresholdX = cardWidth * 0.4; // 40% threshold of card width
+
+			// 1. Rubber Banding: Apply high non-linear resistance to active horizontal drag.
+			// Moves MUCH slower than actual finger distance.
+			const resistanceX = Math.sign(diffX) * Math.pow(Math.abs(diffX), 0.7) * 0.85;
+
+			const dir = resistanceX > 0 ? 'right' : (resistanceX < 0 ? 'left' : null);
+			if (dir !== swipeDir) {
+				setSwipeDir(dir);
+			}
+
+			// Update motion transform position directly
+			controls.set({ x: resistanceX });
+
+			// Threshold haptic tick when finger distance reaches the threshold (thresholdX)
+			if (Math.abs(diffX) >= thresholdX && !hasVibrated) {
+				if (localStorage.getItem('haptics') === 'true') {
+					window.navigator?.vibrate?.(40);
+				}
+				setHasVibrated(true);
+			} else if (Math.abs(diffX) < thresholdX && hasVibrated) {
+				setHasVibrated(false);
+			}
+
+			// 2. Threshold Override: instantly accelerate forward to 40% open state if finger crosses threshold
+			if (Math.abs(diffX) >= thresholdX) {
+				handleSnap(diffX > 0 ? thresholdX : -thresholdX);
+				return;
+			}
+
+			if (e.cancelable) {
+				e.preventDefault();
+			}
+		}
+	};
+
+	const handleTouchEnd = () => {
+		if (!swipeGesturesEnabled || isSnappingRef.current || isDeleting) return;
+		if (isSwiping) {
+			// Cancel Phase: Snap back to 0% if released before the 40% threshold
+			controls.start({
+				x: 0,
+				transition: { type: 'spring', stiffness: 400, damping: 30 }
+			}).then(() => {
+				setSwipeDir(null);
+				setIsSwiping(false);
+				setHasVibrated(false);
+			});
+		}
+	};
+
+	return (
+		<div ref={cardRef} className="relative overflow-hidden rounded-2xl w-full">
+			{swipeDir === 'right' && (
+				<div className="absolute inset-0 bg-emerald-600 dark:bg-emerald-500 flex items-center justify-start pl-8 text-white rounded-2xl">
+					<WhatsAppIcon />
+				</div>
+			)}
+			{swipeDir === 'left' && (
+				<div className="absolute inset-0 bg-rose-600 flex items-center justify-end pr-8 text-white rounded-2xl">
+					<Trash2 className="w-7 h-7 text-white" />
+				</div>
+			)}
+			<motion.div
+				animate={controls}
+				onTouchStart={handleTouchStart}
+				onTouchMove={handleTouchMove}
+				onTouchEnd={handleTouchEnd}
+				onClick={onClick}
+				className="w-full relative touch-pan-y"
+			>
+				{children}
+			</motion.div>
+		</div>
+	);
+};
+
 
 interface CustomerManagerProps {
  customers: Customer[];
@@ -28,6 +213,7 @@ interface CustomerManagerProps {
  setSelectedCustomerId: (id: string | null) => void;
  lang: Language;
  triggerConfirm?: (title: string, message: string, onConfirm: () => void) => void;
+  swipeGesturesEnabled?: boolean;
 }
 
 export default function CustomerManager({
@@ -43,6 +229,8 @@ export default function CustomerManager({
  setSelectedCustomerId,
  lang,
  triggerConfirm
+,
+  swipeGesturesEnabled = true
 }: CustomerManagerProps) {
  const t = translations[lang];
 
@@ -76,13 +264,20 @@ export default function CustomerManager({
  const [editTxAmount, setEditTxAmount] = useState('');
  const [editTxDesc, setEditTxDesc] = useState('');
  const [deletingTx, setDeletingTx] = useState<Transaction | null>(null);
+  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
+  const [ledgerLimit, setLedgerLimit] = useState(5);
+
+  React.useEffect(() => {
+    setLedgerLimit(5);
+  }, [selectedCustomerId]);
 
  // Handle history for modals (mobile back gesture)
  React.useEffect(() => {
    const handlePopState = () => {
-     if (editingTx || deletingTx) {
+      if (editingTx || deletingTx || deletingCustomer) {
        setEditingTx(null);
        setDeletingTx(null);
+        setDeletingCustomer(null);
      }
    };
    window.addEventListener('popstate', handlePopState);
@@ -201,44 +396,31 @@ export default function CustomerManager({
  }
  };
 
- const handleDelete = async (id: string) => {
- if (triggerConfirm) {
- triggerConfirm(
- lang === 'bn' ? 'গ্রাহক অ্যাকাউন্ট মুছে ফেলুন' : 'Delete Customer Account',
- t.confirmDelete,
- async () => {
- await deleteCustomer(id);
- setSelectedCustomerId(null);
- toast.info(lang === 'bn' ? 'গ্রাহক ডিলিট হয়েছে' : 'Customer account deleted');
- }
- );
- } else if (confirm(t.confirmDelete)) {
- await deleteCustomer(id);
- setSelectedCustomerId(null);
- toast.info(lang === 'bn' ? 'গ্রাহক ডিলিট হয়েছে' : 'Customer account deleted');
- }
- };
+  const handleDelete = (c: Customer) => {
+    window.history.pushState({ modal: 'deleteCustomer' }, '');
+    setDeletingCustomer(c);
+  };
 
  // Generate message text based on selected template index
- const getMessageText = (c: Customer, templateIdx: number) => {
- if (lang === 'bn') {
- if (templateIdx === 1) {
- return `আসসালামু আলাইকুম ${c.name}, এটি একটি বন্ধুত্বপূর্ণ রিমাইন্ডার যে আপনার কাছে আমাদের বকেয়া পাওনা টাকার পরিমাণ হল ৳${formatNumber(c.outstandingDue, 'bn')}। অনুগ্রহ করে শীঘ্রই এই পাওনা পরিশোধ করুন। ধন্যবাদ!`;
- } else if (templateIdx === 2) {
- return `আসসালামু আলাইকুম ${c.name}, আশা করি ভালো আছেন। আমাদের খতিয়ান অনুযায়ী আপনার বকেয়া হিসাবটি হল ৳${formatNumber(c.outstandingDue, 'bn')}। সম্ভব হলে হিসাবটি পরিশোধ বা আংশিক সমন্বয় করার অনুরোধ জানাচ্ছি। ধন্যবাদ!`;
- } else {
- return `আসসালামু আলাইকুম জনাব/জনাবা ${c.name}, অনুগ্রহ করে লক্ষ্য করুন যে আপনার মোট বকেয়া পাওনা হল ৳${formatNumber(c.outstandingDue, 'bn')}। আমাদের ব্যবসার সুবিধার্থে অতিসত্বর এই বাকি পরিশোধ করার জন্য বিশেষভাবে অনুরোধ করা হলো।`;
- }
- } else {
- if (templateIdx === 1) {
- return `Hello ${c.name}, this is a friendly reminder that your outstanding balance in our ledger account is ৳${formatNumber(c.outstandingDue, 'en')}. Please clear your balance at your earliest convenience. Thank you!`;
- } else if (templateIdx === 2) {
- return `Hello ${c.name}, hope you are doing well. According to our ledger, your outstanding due is ৳${formatNumber(c.outstandingDue, 'en')}. We request you to kindly settle or partially clear this balance. Thank you!`;
- } else {
- return `Dear ${c.name}, please note that your total outstanding due is ৳${formatNumber(c.outstandingDue, 'en')}. We kindly request you to clear this remaining balance as soon as possible for our business convenience. Thank you.`;
- }
- }
- };
+  const getMessageText = (c: Customer, templateIdx: number) => {
+    if (lang === 'bn') {
+      if (templateIdx === 1) {
+        return `আসসালামু আলাইকুম ${c.name}। আপনার কাছে আমাদের বকেয়া পাওনা ৳${formatNumber(c.outstandingDue, 'bn')}। সম্ভব হলে অনুগ্রহ করে দ্রুত পরিশোধ করুন। ধন্যবাদ!`;
+      } else if (templateIdx === 2) {
+        return `আসসালামু আলাইকুম ${c.name}। আশা করি ভালো আছেন। আপনার বকেয়া হিসাব ৳${formatNumber(c.outstandingDue, 'bn')} পরিশোধ বা সমন্বয় করার অনুরোধ রইল। ধন্যবাদ!`;
+      } else {
+        return `প্রিয় ${c.name}। আপনার মোট বকেয়া পাওনা ৳${formatNumber(c.outstandingDue, 'bn')}। অনুগ্রহ করে দ্রুত পরিশোধ করার জন্য অনুরোধ করা হলো। ধন্যবাদ!`;
+      }
+    } else {
+      if (templateIdx === 1) {
+        return `Hi ${c.name}, a friendly reminder that your outstanding balance is ৳${formatNumber(c.outstandingDue, 'en')}. Please clear it at your earliest convenience. Thanks!`;
+      } else if (templateIdx === 2) {
+        return `Hi ${c.name}, hope you are doing well. According to our ledger, your outstanding due is ৳${formatNumber(c.outstandingDue, 'en')}. Kindly settle this balance. Thanks!`;
+      } else {
+        return `Dear ${c.name}, your total outstanding due is ৳${formatNumber(c.outstandingDue, 'en')}. We request you to clear it as soon as possible. Thank you!`;
+      }
+    }
+  };
 
  // Generate customized shareable WhatsApp link
  const getShareLink = (c: Customer, format: 'whatsapp' | 'sms') => {
@@ -313,7 +495,12 @@ export default function CustomerManager({
  </div>
  </div>
 
- {formError && <div className="text-rose-500 text-sm font-semibold">⚠️ {formError}</div>}
+ {formError && (
+    <div className="text-rose-500 text-sm font-semibold flex items-center gap-1.5">
+      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+      <span>{formError}</span>
+    </div>
+  )}
 
  <div className="flex justify-end gap-3 touch-target-height">
  <button
@@ -409,39 +596,55 @@ export default function CustomerManager({
  {/* Customer list database */}
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
  {filteredCustomers.map(c => (
- <div
- key={c.id}
- onClick={() => setSelectedCustomerId(selectedCustomerId === c.id ? null : c.id)}
- className={`bg-white dark:bg-zinc-900 border p-5 rounded-2xl shadow-md hover:shadow-md transition-all cursor-pointer flex items-center justify-between group ${
- selectedCustomerId === c.id 
- ? 'border-emerald-500 ring-2 ring-emerald-500/20 dark:ring-emerald-400/20' 
- : 'border-zinc-200 dark:border-zinc-800'
- }`}
- >
- <div className="min-w-0 pr-2">
- <div className="text-lg font-bold text-zinc-800 dark:text-zinc-100 truncate group-hover:text-emerald-600 transition-colors">
- {c.name}
- </div>
- <div className="text-xs text-zinc-500 dark:text-zinc-400 font-medium flex items-center gap-1.5 mt-1">
- <Phone className="w-3 h-3 shrink-0" />
- {c.phone || (lang === 'bn' ? '(ফোন নম্বর নেই)' : '(No phone listed)')}
- </div>
- </div>
+		<SwipeableCustomerItem
+			key={c.id}
+			customer={c}
+			lang={lang}
+			onClick={() => setSelectedCustomerId(selectedCustomerId === c.id ? null : c.id)}
+			isSelected={selectedCustomerId === c.id}
+			swipeGesturesEnabled={swipeGesturesEnabled}
+			isDeleting={deletingCustomer?.id === c.id}
+			onWhatsApp={() => {
+				if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(50);
+				window.open(getShareLink(c, 'whatsapp'), '_blank');
+			}}
+			onDelete={() => {
+				if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.([50, 50]);
+				handleDelete(c);
+			}}
+		>
+			<div
+				className={`bg-white dark:bg-zinc-900 border p-5 rounded-2xl shadow-md hover:shadow-md transition-all cursor-pointer flex items-center justify-between group ${
+					selectedCustomerId === c.id 
+						? 'border-emerald-500 ring-2 ring-emerald-500/20 dark:ring-emerald-400/20' 
+						: 'border-zinc-200 dark:border-zinc-800'
+				}`}
+			>
+				<div className="min-w-0 pr-2">
+					<div className="text-lg font-bold text-zinc-800 dark:text-zinc-100 truncate group-hover:text-emerald-600 transition-colors">
+						{c.name}
+					</div>
+					<div className="text-xs text-zinc-500 dark:text-zinc-400 font-medium flex items-center gap-1.5 mt-1">
+						<Phone className="w-3 h-3 shrink-0" />
+						{c.phone || (lang === 'bn' ? '(ফোন নম্বর নেই)' : '(No phone listed)')}
+					</div>
+				</div>
 
- <div className="text-right shrink-0">
- <div className="text-2xs font-bold text-zinc-400 uppercase tracking-wide">{lang === 'bn' ? 'ব্যালেন্স' : 'Outstanding'}</div>
- <div className={`text-xl font-black mt-0.5 ${
- c.outstandingDue > 0 
- ? 'text-rose-600 dark:text-rose-450' 
- : c.outstandingDue < 0 
- ? 'text-cyan-600 dark:text-cyan-400' 
- : 'text-zinc-400 dark:text-zinc-500'
- }`}>
- ৳ {formatNumber(c.outstandingDue || 0, lang)}
- </div>
- </div>
- </div>
- ))}
+				<div className="text-right shrink-0">
+					<div className="text-2xs font-bold text-zinc-400 uppercase tracking-wide">{lang === 'bn' ? 'ব্যালেন্স' : 'Outstanding'}</div>
+					<div className={`text-xl font-black mt-0.5 ${
+						c.outstandingDue > 0 
+							? 'text-rose-600 dark:text-rose-455' 
+							: c.outstandingDue < 0 
+								? 'text-cyan-600 dark:text-cyan-400' 
+								: 'text-zinc-400 dark:text-zinc-500'
+					}`}>
+						৳ {formatNumber(c.outstandingDue || 0, lang)}
+					</div>
+				</div>
+			</div>
+		</SwipeableCustomerItem>
+	))}
 
  {filteredCustomers.length === 0 && (
  <div className="col-span-1 sm:col-span-2 p-10 text-center bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 text-zinc-400">
@@ -466,8 +669,9 @@ export default function CustomerManager({
  setSelectedCustomerId(null);
  setOpenActionType(null);
  setIsEditingCustomer(false);
- }}
- className="flex items-center gap-2 px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 font-bold text-zinc-700 dark:text-zinc-200 rounded-full cursor-pointer transition-colors"
+  setLedgerLimit(5);
+  }}
+  className="flex items-center gap-2 px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 font-bold text-zinc-700 dark:text-zinc-200 rounded-full cursor-pointer transition-colors"
  id="back_to_list_btn"
  >
  <ArrowLeft className="w-5 h-5" />
@@ -499,27 +703,27 @@ export default function CustomerManager({
  {isEditingCustomer ? (
  <div className="flex-1 space-y-3 max-w-sm">
  <div>
- <label className="block text-3xs font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mb-1">
+ <label className="block text-2xs font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mb-1">
  {lang === 'bn' ? 'গ্রাহকের নাম' : 'Customer Name'}
  </label>
  <input
  type="text"
  value={editName}
  onChange={(e) => setEditName(e.target.value)}
- className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white focus:outline-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 text-sm font-bold"
+ className="w-full px-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white focus:outline-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 text-base font-extrabold"
  placeholder={lang === 'bn' ? 'নাম লিখুন' : 'Enter name'}
  required
  />
  </div>
  <div>
- <label className="block text-3xs font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mb-1">
+ <label className="block text-2xs font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mb-1">
  {lang === 'bn' ? 'মোবাইল নম্বর' : 'Mobile Number'}
  </label>
  <input
  type="text"
  value={editPhone}
  onChange={(e) => setEditPhone(e.target.value)}
- className="w-full px-3 py-2 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white focus:outline-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 text-sm font-bold"
+ className="w-full px-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white focus:outline-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 text-base font-extrabold"
  placeholder={lang === 'bn' ? 'যেমন: ০১৭...' : 'e.g. 017...'}
  />
  </div>
@@ -540,13 +744,17 @@ export default function CustomerManager({
  await updateCustomerDetails(selectedCustomer.id, editName, editPhone);
  setIsEditingCustomer(false);
  toast.success(lang === 'bn' ? 'তথ্য আপডেট করা হয়েছে' : 'Profile updated');
- } catch (err) {
- setEditError(lang === 'bn' ? 'সংরক্ষণ করতে ব্যর্থ হয়েছে' : 'Failed to save changes');
- } finally {
+     } catch (err) {
+      if (err && (err as any).message === 'DUPLICATE_NAME') {
+        setEditError(lang === 'bn' ? 'এই নামের গ্রাহক ইতিমধ্যে খতিয়ানে সংরক্ষিত আছে।' : 'A customer with this name already exists.');
+      } else {
+        setEditError(lang === 'bn' ? 'সংরক্ষণ করতে ব্যর্থ হয়েছে' : 'Failed to save changes');
+      }
+    } finally {
  setIsSavingEdit(false);
  }
  }}
- className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400 text-white dark:text-zinc-950 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+ className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400 text-white dark:text-zinc-950 font-bold text-sm rounded-lg transition-colors cursor-pointer"
  >
  {isSavingEdit ? (lang === 'bn' ? 'সংরক্ষণ হচ্ছে...' : 'Saving...') : (lang === 'bn' ? 'সংরক্ষণ করুন' : 'Save')}
  </button>
@@ -554,7 +762,7 @@ export default function CustomerManager({
  type="button"
  disabled={isSavingEdit}
  onClick={() => setIsEditingCustomer(false)}
- className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+ className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold text-sm rounded-lg transition-colors cursor-pointer"
  >
  {lang === 'bn' ? 'বাতিল' : 'Cancel'}
  </button>
@@ -598,12 +806,16 @@ export default function CustomerManager({
 
  {/* Quick message template picker card for Dad */}
  {selectedCustomer.phone && selectedCustomer.outstandingDue > 0 && (
- <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-3 relative z-10">
- <div className="text-xs font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-wide flex items-center gap-2">
+  <details className="bg-zinc-50 dark:bg-zinc-950 px-4 pt-[18px] pb-[6px] open:pb-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-3 relative z-10 group [&_summary::-webkit-details-marker]:hidden">
+ <summary className="text-xs font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-wide flex items-center justify-between cursor-pointer list-none select-none">
+      <div className="flex items-center gap-2">
  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
  {t.predefinedMessages}
- </div>
- <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+      </div>
+      <ChevronDown className="w-4 h-4 transition-transform group-open:-rotate-180" />
+    </summary>
+    <div className="pt-3">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
  <button
  onClick={() => setSelectedTemplate(1)}
  className={`p-3 text-left rounded-xl text-xs font-bold border transition-all cursor-pointer ${
@@ -639,8 +851,9 @@ export default function CustomerManager({
  {/* Live Message Preview for senior ease-of-mind */}
  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3.5 rounded-xl text-xs italic text-zinc-600 dark:text-zinc-300 leading-relaxed font-bold">
  "{getMessageText(selectedCustomer, selectedTemplate)}"
- </div>
- </div>
+    </div>
+    </div>
+  </details>
  )}
 
  {/* SEND REMINDERS / ACTIONS FOR DAD */}
@@ -669,7 +882,7 @@ export default function CustomerManager({
  
  {/* DELETE ACCOUNT BUTTON */}
  <button
- onClick={() => handleDelete(selectedCustomer.id)}
+              onClick={() => handleDelete(selectedCustomer)}
  className="py-3 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 dark:text-rose-400 rounded-xl flex items-center justify-center gap-2 cursor-pointer text-xs font-semibold"
  >
  <Trash2 className="w-4 h-4" />
@@ -746,6 +959,27 @@ export default function CustomerManager({
  required
  autoFocus
  />
+
+              {openActionType === 'payment' && selectedCustomer && selectedCustomer.outstandingDue > 0 && (
+                <div className="flex items-center gap-2 mt-2.5 p-3 bg-zinc-50 dark:bg-zinc-800/50 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                  <input
+                    type="checkbox"
+                    id="payFullDueInline"
+                    className="w-4 h-4 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500 cursor-pointer"
+                    checked={actionAmount.replace(/,/g, '') === selectedCustomer.outstandingDue.toString()}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setActionAmount(formatIndianNumberString(selectedCustomer.outstandingDue.toString()));
+                      } else {
+                        setActionAmount('');
+                      }
+                    }}
+                  />
+                  <label htmlFor="payFullDueInline" className="text-xs font-bold text-zinc-600 dark:text-zinc-400 cursor-pointer select-none">
+                    {lang === 'bn' ? 'সম্পূর্ণ বকেয়া পরিশোধ করুন' : 'Settle complete due'} (৳{formatNumber(selectedCustomer.outstandingDue, lang)})
+                  </label>
+                </div>
+              )}
 
  {/* Tap amount quick-add preset buttons for elderly easy input */}
  <div className="flex flex-wrap gap-1.5 mt-2">
@@ -836,7 +1070,7 @@ export default function CustomerManager({
  </div>
  ) : (
  <div className="divide-y divide-zinc-100 dark:divide-zinc-850">
- {selectedCustomerTransactions.map(tx => (
+ {selectedCustomerTransactions.slice(0, ledgerLimit).map(tx => (
  <div 
   key={tx.id} 
   className="p-4 flex flex-col hover:bg-zinc-50/50 dark:hover:bg-zinc-850/50 transition-colors group cursor-default"
@@ -894,6 +1128,31 @@ export default function CustomerManager({
   </div>
  </div>
  ))}
+
+  {selectedCustomerTransactions.length > 5 && (
+    <div className="p-4 text-center flex justify-center gap-3">
+      {ledgerLimit < selectedCustomerTransactions.length && (
+        <button 
+          type="button"
+          onClick={() => setLedgerLimit(prev => prev + 20)}
+          className="flex items-center gap-1 px-5 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-full transition-colors cursor-pointer"
+        >
+          {lang === 'bn' ? 'আরও দেখুন' : 'Show More'}
+          <ChevronDown className="w-4 h-4" />
+        </button>
+      )}
+      {ledgerLimit > 5 && (
+        <button 
+          type="button"
+          onClick={() => setLedgerLimit(5)}
+          className="flex items-center gap-1 px-5 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-full transition-colors cursor-pointer"
+        >
+          {lang === 'bn' ? 'কম দেখুন' : 'Show Less'}
+          <ChevronUp className="w-4 h-4" />
+        </button>
+      )}
+    </div>
+  )}
  </div>
  )}
  </div>
@@ -903,13 +1162,11 @@ export default function CustomerManager({
  )}
 
  {/* Edit Transaction Modal */}
- <AnimatePresence>
   {editingTx && (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80">
       <motion.div
         initial={{ opacity: 0, y: 50 }}
         animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95 }}
         transition={{ duration: 0.15 }}
         className="bg-white dark:bg-zinc-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
       >
@@ -960,16 +1217,13 @@ export default function CustomerManager({
       </motion.div>
     </div>
   )}
- </AnimatePresence>
 
  {/* Delete Transaction Modal */}
- <AnimatePresence>
   {deletingTx && (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80">
       <motion.div
         initial={{ opacity: 0, y: 50 }}
         animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95 }}
         transition={{ duration: 0.15 }}
         className="bg-white dark:bg-zinc-900 w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
       >
@@ -983,6 +1237,40 @@ export default function CustomerManager({
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             {lang === 'bn' ? 'আপনি কি নিশ্চিত এই লেনদেন মুছে ফেলতে চান?' : 'Are you sure you want to delete this transaction?'}
           </p>
+          
+          {/* Details Card showing what is being deleted */}
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 text-left space-y-2.5 mt-4">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'ধরন' : 'Type'}</span>
+              <span className={`text-xs font-black px-2.5 py-1 rounded-full uppercase ${
+                deletingTx.type === 'due' 
+                  ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400' 
+                  : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-450'
+              }`}>
+                {deletingTx.type === 'due' ? (lang === 'bn' ? 'বকেয়া (+)' : 'Due (+)') : (lang === 'bn' ? 'আদায় (-)' : 'Payment (-)')}
+              </span>
+            </div>
+            <div className="flex justify-between items-baseline">
+              <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'পরিমাণ' : 'Amount'}</span>
+              <span className={`text-base font-black ${
+                deletingTx.type === 'due' ? 'text-rose-600 dark:text-rose-450' : 'text-emerald-600 dark:text-emerald-400'
+              }`}>
+                ৳ {formatNumber(deletingTx.amount, lang)}
+              </span>
+            </div>
+            <div className="flex justify-between items-baseline">
+              <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'তারিখ' : 'Date'}</span>
+              <span className="text-xs font-bold text-zinc-750 dark:text-zinc-300">
+                {new Date(deletingTx.date).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { dateStyle: 'medium' })}
+              </span>
+            </div>
+            {deletingTx.description && (
+              <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 flex justify-between items-start gap-4">
+                <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase shrink-0">{lang === 'bn' ? 'বিবরণ' : 'Notes'}</span>
+                <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 text-right truncate max-w-[200px]">{deletingTx.description}</span>
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex flex-col gap-3">
           <button
@@ -1006,8 +1294,86 @@ export default function CustomerManager({
       </motion.div>
     </div>
   )}
- </AnimatePresence>
 
+
+  {/* Delete Customer Account Modal (Red-themed warning modal) */}
+  {deletingCustomer && (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80">
+      <motion.div
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white dark:bg-zinc-900 w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
+      >
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle className="w-8 h-8 text-rose-600 dark:text-rose-500" />
+          </div>
+          <h3 className="text-lg font-black text-rose-600 dark:text-rose-455 mb-2">
+            {lang === 'bn' ? 'গ্রাহক অ্যাকাউন্ট ট্র্যাশে সরান' : 'Move Customer to Trash'}
+          </h3>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            {lang === 'bn' 
+              ? 'আপনি কি নিশ্চিত এই গ্রাহকের সম্পূর্ণ অ্যাকাউন্ট ট্র্যাশে স্থানান্তর করতে চান? এটি ৭ দিন পর স্থায়ীভাবে মুছে যাবে।' 
+              : 'Are you sure you want to move this customer account to the trash? It will be permanently deleted after 7 days.'}
+          </p>
+          
+          {/* Details Card showing customer name, phone, and outstanding balance */}
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 text-left space-y-2.5 mt-4">
+            <div className="flex justify-between items-baseline">
+              <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'নাম' : 'Name'}</span>
+              <span className="text-sm font-extrabold text-zinc-850 dark:text-zinc-150 truncate max-w-[200px]">{deletingCustomer.name}</span>
+            </div>
+            {deletingCustomer.phone && (
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'মোবাইল' : 'Mobile'}</span>
+                <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">{deletingCustomer.phone}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-baseline">
+              <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'বর্তমান ব্যালেন্স' : 'Current Balance'}</span>
+              <span className={`text-sm font-black ${
+                deletingCustomer.outstandingDue > 0 
+                  ? 'text-rose-600 dark:text-rose-455' 
+                  : deletingCustomer.outstandingDue < 0 
+                  ? 'text-cyan-600 dark:text-cyan-400' 
+                  : 'text-zinc-500'
+              }`}>
+                {deletingCustomer.outstandingDue === 0 ? (lang === 'bn' ? 'পরিশোধিত' : 'Settled') : `৳ ${formatNumber(deletingCustomer.outstandingDue, lang)}`}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={async () => {
+              const id = deletingCustomer.id;
+              setDeletingCustomer(null);
+              if (window.history.state?.modal === 'deleteCustomer') {
+                window.history.back();
+              }
+              await deleteCustomer(id);
+              setSelectedCustomerId(null);
+              toast.info(lang === 'bn' ? 'গ্রাহক ট্র্যাশে স্থানান্তরিত হয়েছে' : 'Customer account moved to trash');
+            }}
+            className="w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl cursor-pointer"
+          >
+            {lang === 'bn' ? 'হ্যাঁ, ট্র্যাশে পাঠান' : 'Yes, Trash'}
+          </button>
+          <button
+            onClick={() => {
+              setDeletingCustomer(null);
+              if (window.history.state?.modal === 'deleteCustomer') {
+                window.history.back();
+              }
+            }}
+            className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer"
+          >
+            {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  )}
  </div>
  );
 }

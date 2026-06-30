@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Customer } from '../types';
-import { X, Search, UserPlus, Check, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
+import { X, Search, UserPlus, Check, ArrowDownLeft, ArrowUpRight, ChevronLeft, AlertTriangle } from 'lucide-react';
 import { translations, formatNumber, formatIndianNumberString, Language } from '../lib/translations';
 import { toast } from 'sonner';
 
@@ -32,6 +32,8 @@ export default function QuickEntryModal({
 }: QuickEntryModalProps) {
  const t = translations[lang];
 
+  const submitBtnRef = React.useRef<HTMLButtonElement>(null);
+  const formScrollRef = React.useRef<HTMLFormElement>(null);
  const [type, setType] = useState<'due' | 'payment'>('due');
  const [searchQuery, setSearchQuery] = useState('');
  const [selectedCustomerId, setSelectedCustomerId] = useState(preselectedCustomerId || '');
@@ -94,7 +96,18 @@ export default function QuickEntryModal({
  return;
  }
 
- setIsSubmitting(true);
+  setIsSubmitting(true);
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+  setTimeout(() => {
+    if (formScrollRef.current) {
+      formScrollRef.current.scrollTo({
+        top: formScrollRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, 150);
  try {
  if (showAddNewCustomer) {
  if (!customerNameInput.trim()) {
@@ -180,7 +193,7 @@ export default function QuickEntryModal({
  </button>
  </div>
 
- <form onSubmit={handleSave} className="flex-1 overflow-y-auto hide-scrollbar p-5 space-y-6">
+ <form ref={formScrollRef} onSubmit={handleSave} className="flex-1 overflow-y-auto hide-scrollbar p-5 space-y-6">
  
  {/* 1. ENTRY TYPE SELECTION (GIANT BUTTONS) */}
  <div className="space-y-2">
@@ -233,8 +246,11 @@ export default function QuickEntryModal({
  id="toggle_new_cust_btn"
  >
  {showAddNewCustomer ? (
- lang === 'bn' ? '← তালিকায় ফিরুন' : '← Back to List'
- ) : (
+    <span className="flex items-center gap-1">
+      <ChevronLeft className="w-4 h-4" />
+      <span>{lang === 'bn' ? 'তালিকায় ফিরুন' : 'Back to List'}</span>
+    </span>
+  ) : (
  <>
  <UserPlus className="w-4 h-4" />
  + {lang === 'bn' ? 'নতুন গ্রাহক যোগ' : 'Add New Customer'}
@@ -259,7 +275,7 @@ export default function QuickEntryModal({
 
  {/* Customer Names Grid */}
   <div className="relative pt-1">
-    <div className={`grid grid-cols-2 gap-2 ${!showAllCustomers ? 'grid-rows-3' : ''}`}>
+    <div className="grid grid-cols-2 gap-2">
       {(showAllCustomers ? filteredCustomers : filteredCustomers.slice(0, 6)).map(c => (
       <button
       key={c.id}
@@ -311,7 +327,7 @@ export default function QuickEntryModal({
  placeholder="e.g. Wahid Zaman"
  value={customerNameInput}
  onChange={(e) => setCustomerNameInput(e.target.value)}
- className="w-full px-4 py-3 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-850 dark:text-white"
+ className="w-full px-4 py-3 bg-[#009966]/5 dark:bg-[#009966]/5 border-2 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966] rounded-xl text-zinc-850 dark:text-white focus:outline-none transition-all"
  />
  </div>
  <div className="space-y-1">
@@ -321,7 +337,7 @@ export default function QuickEntryModal({
  placeholder="e.g. 01712345678"
  value={customerPhoneInput}
  onChange={(e) => setCustomerPhoneInput(e.target.value)}
- className="w-full px-4 py-3 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-850 dark:text-white"
+ className="w-full px-4 py-3 bg-[#009966]/5 dark:bg-[#009966]/5 border-2 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966] rounded-xl text-zinc-850 dark:text-white focus:outline-none transition-all"
  />
  </div>
  </div>
@@ -360,7 +376,8 @@ export default function QuickEntryModal({
       <input
         type="checkbox"
         id="payFullDue"
-        className="w-4 h-4 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500"
+        className="w-4 h-4 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500 shadow-sm cursor-pointer"
+        checked={amountInput.replace(/,/g, '') === (currentCustomer as any).outstandingDue.toString()}
         onChange={(e) => {
           if (e.target.checked) {
             setAmountInput(formatIndianNumberString((currentCustomer as any).outstandingDue.toString()));
@@ -412,16 +429,18 @@ export default function QuickEntryModal({
  </div>
 
  {/* Error Message */}
- {errorMsg && (
- <div className="p-4 bg-rose-50 dark:bg-rose-950/20 rounded-xl text-rose-600 dark:text-rose-400 font-semibold text-sm">
- ⚠️ {errorMsg}
- </div>
- )}
+  {errorMsg && (
+  <div className="p-4 bg-rose-50 dark:bg-rose-950/20 rounded-xl text-rose-600 dark:text-rose-400 font-semibold text-sm flex items-start gap-2">
+    <AlertTriangle className="w-4.5 h-4.5 text-amber-500 shrink-0 mt-0.5" />
+    <span>{errorMsg}</span>
+  </div>
+  )}
 
  {/* Actions Submit */}
  <div className="pt-4 pb-2">
  <button
- type="submit"
+  ref={submitBtnRef}
+  type="submit"
  disabled={isSubmitting}
  className={`w-full py-4.5 rounded-2xl font-extrabold text-lg flex items-center justify-center shadow-lg transition-all cursor-pointer ${
  type === 'due' 

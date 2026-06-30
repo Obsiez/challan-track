@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
  onAuthStateChanged, 
  signInWithPopup, 
@@ -14,20 +14,49 @@ import RemindersManager from './components/RemindersManager';
 import SettingsManager from './components/SettingsManager';
 import QuickEntryModal from './components/QuickEntryModal';
 import AnalyticsManager from './components/AnalyticsManager';
-import { 
- LayoutDashboard, Users, Bell, Settings, BookOpen, Clock, Globe, Plus, Moon, Sun, ArrowUpRight, ArrowDownLeft, ChevronRight, BarChart3
+import {
+  LayoutDashboard, Users, Bell, Settings, BookOpen, Clock, Globe, Plus, Moon, Sun, ArrowUpRight, ArrowDownLeft, ChevronRight, BarChart3, ArrowLeft, ClipboardList, Lock, Loader2, Calendar
 } from 'lucide-react';
+import { showNotification } from './lib/notifications';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
 import { translations, Language, formatNumber } from './lib/translations';
 
+const parseFirestoreDate = (dateVal: any): Date => {
+  if (!dateVal) return new Date();
+  if (dateVal instanceof Date) return dateVal;
+  if (typeof dateVal.toDate === 'function') return dateVal.toDate();
+  if (dateVal.seconds !== undefined) return new Date(dateVal.seconds * 1000);
+  const parsed = new Date(dateVal);
+  return isNaN(parsed.getTime()) ? new Date() : parsed;
+};
+
+const getLocalDateString = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
 export default function App() {
- const [user, setUser] = useState<User | null>(null);
- const [authLoading, setAuthLoading] = useState(true);
- const [currentTab, setCurrentTab] = useState<'home' | 'customers' | 'analytics' | 'reminders' | 'settings'>('home');
- const [isQuickEntryOpen, setIsQuickEntryOpen] = useState(false);
- const [selectedCustomerIdForDetail, setSelectedCustomerIdForDetail] = useState<string | null>(null);
- const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [currentTab, setCurrentTab] = useState<'home' | 'customers' | 'analytics' | 'reminders' | 'settings' | 'daily_transactions'>('home');
+  const [isQuickEntryOpen, setIsQuickEntryOpen] = useState(false);
+  const [selectedCustomerIdForDetail, setSelectedCustomerIdForDetail] = useState<string | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [swipeGesturesEnabled, setSwipeGesturesEnabled] = useState(() => localStorage.getItem('swipe_gestures_enabled') !== 'false');
+
+  const isQuickEntryOpenRef = React.useRef(isQuickEntryOpen);
+  React.useEffect(() => {
+    isQuickEntryOpenRef.current = isQuickEntryOpen;
+  }, [isQuickEntryOpen]);
+
+  // Reset scroll height to top on tab or selected customer changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [currentTab, selectedCustomerIdForDetail]);
 
  useEffect(() => {
    const handleBeforeInstallPrompt = (e: any) => {
@@ -58,43 +87,55 @@ export default function App() {
  setIsQuickEntryOpen(true);
  };
 
- const closeQuickEntry = () => {
- if (window.history.state?.quickEntry) {
- window.history.back();
- } else {
- setIsQuickEntryOpen(false);
- }
- };
-
- useEffect(() => {
- // Force open dashboard on fresh load regardless of previous URL
- setCurrentTab('home');
- setSelectedCustomerIdForDetail(null);
- setIsQuickEntryOpen(false);
- 
- window.history.replaceState({ tab: 'home', customerId: null, quickEntry: false }, '', window.location.pathname + '?tab=home');
-
-  const handlePopState = (e: PopStateEvent) => {
-    // If the back button is pressed, ensure dialogs close
-    setAppDialog(null);
-    if (e.state) {
-      setCurrentTab(e.state.tab || 'home');
-      setSelectedCustomerIdForDetail(e.state.customerId || null);
-      setIsQuickEntryOpen(e.state.quickEntry || false);
-    } else {
+  const closeQuickEntry = () => {
+    if (!window.history.state?.quickEntry) {
+      if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(30);
       setIsQuickEntryOpen(false);
+    } else {
+      window.history.back();
     }
   };
- window.addEventListener('popstate', handlePopState);
- return () => window.removeEventListener('popstate', handlePopState);
- }, []);
 
- // Cleanup any old senior mode remnants on mount
- useEffect(() => {
- document.documentElement.classList.remove('senior-mode');
- localStorage.removeItem('senior_mode');
- }, []);
+  useEffect(() => {
+    // Force open dashboard on fresh load regardless of previous URL
+    setCurrentTab('home');
+    setSelectedCustomerIdForDetail(null);
+    setIsQuickEntryOpen(false);
+    
+    window.history.replaceState({ tab: 'home', customerId: null, quickEntry: false }, '', window.location.pathname + '?tab=home');
 
+    const handlePopState = (e: PopStateEvent) => {
+      setAppDialog(null);
+      const wasQuickEntryOpen = isQuickEntryOpenRef.current;
+      const isNowQuickEntryOpen = e.state?.quickEntry || false;
+      if (wasQuickEntryOpen && !isNowQuickEntryOpen) {
+        if (localStorage.getItem('haptics') === 'true') window.navigator?.vibrate?.(30);
+      }
+      if (e.state) {
+        setCurrentTab(e.state.tab || 'home');
+        setSelectedCustomerIdForDetail(e.state.customerId || null);
+        setIsQuickEntryOpen(isNowQuickEntryOpen);
+      } else {
+        setIsQuickEntryOpen(false);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Cleanup any old senior mode remnants on mount + listen for open-daily-transactions
+  useEffect(() => {
+    document.documentElement.classList.remove('senior-mode');
+    localStorage.removeItem('senior_mode');
+
+    const handleOpenDailyTxs = () => {
+      navigateTo('daily_transactions');
+    };
+    window.addEventListener('open-daily-transactions', handleOpenDailyTxs);
+    return () => {
+      window.removeEventListener('open-daily-transactions', handleOpenDailyTxs);
+    };
+  }, []);
  // Multilingual State ('bn' is Bangla, 'en' is English)
  const [lang, setLang] = useState<Language>(() => {
  return (localStorage.getItem('lang') as Language) || 'bn';
@@ -171,8 +212,22 @@ export default function App() {
  addReminder,
  toggleReminder,
  deleteReminder,
- deleteCustomer
+ deleteCustomer,
+ trashCustomers,
+ restoreCustomer,
+ permanentlyDeleteCustomer,
+ emptyTrash
  } = useLedger(user?.uid);
+
+  const [selectedDailyDate, setSelectedDailyDate] = useState<Date>(new Date());
+  const dateInputRef = React.useRef<HTMLInputElement>(null);
+
+  const todayTransactions = useMemo(() => {
+    const filterDateStr = selectedDailyDate.toDateString();
+    return transactions
+      .filter(tx => parseFirestoreDate(tx.date).toDateString() === filterDateStr)
+      .sort((a, b) => parseFirestoreDate(b.date).getTime() - parseFirestoreDate(a.date).getTime());
+  }, [transactions, selectedDailyDate]);
 
  // End-of-Day Cash Summary Notification
  useEffect(() => {
@@ -282,24 +337,27 @@ export default function App() {
 };
 
  // Handle Log In Mechanisms
- const handleGoogleSignIn = async () => {
- setAuthError(null);
- sessionStorage.setItem('login_intent_theme', theme);
- try {
- await signInWithPopup(auth, googleProvider);
- } catch (err: any) {
- console.error('Google Auth Failed: ', err);
- const errMsg = err?.message || String(err);
- setAuthError(errMsg);
- 
- triggerAlert(
- lang === 'bn' ? 'লগইন ব্যর্থ' : 'Login Failed',
- lang === 'bn' 
- ? 'গুগল লগইন করতে সমস্যা হয়েছে। অনুগ্রহ করে ইন্টারনেট সংযোগটি চেক করুন এবং আবার চেষ্টা করুন।' 
- : 'Google sign-in could not connect. Please check your internet connection and try again.'
- );
- }
- };
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    setAuthError(null);
+    sessionStorage.setItem('login_intent_theme', theme);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err: any) {
+      console.error('Google Auth Failed: ', err);
+      const errMsg = err?.message || String(err);
+      setAuthError(errMsg);
+      
+      triggerAlert(
+        lang === 'bn' ? 'লগইন ব্যর্থ' : 'Login Failed',
+        lang === 'bn' 
+          ? 'গুগল লগইন করতে সমস্যা হয়েছে। অনুগ্রহ করে ইন্টারনেট সংযোগটি চেক করুন এবং আবার চেষ্টা করুন।' 
+          : 'Google sign-in could not connect. Please check your internet connection and try again.'
+      );
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
  const handleGuestSignIn = () => {
  sessionStorage.setItem('login_intent_theme', theme);
@@ -401,8 +459,8 @@ export default function App() {
           
           {/* Logo Heading */}
           <div className="text-center space-y-4">
-            <div className="mx-auto w-14 h-14 rounded-2xl bg-emerald-600/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-              <BookOpen className="w-7 h-7 stroke-[2]" />
+            <div className="mx-auto w-14 h-14 rounded-2xl bg-[#009966] dark:bg-[#007d54] flex items-center justify-center text-white shadow-md">
+              <BookOpen className="w-7 h-7 stroke-[2.5]" />
             </div>
             <div>
               <h1 className="text-2xl sm:text-3xl font-semibold text-zinc-900 dark:text-white tracking-tight">{t.appName}</h1>
@@ -447,24 +505,21 @@ export default function App() {
           <div className="space-y-3 pt-4">
             <button
               onClick={handleGoogleSignIn}
-              className="w-full py-4 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 text-white font-semibold rounded-2xl flex items-center justify-center gap-3 transition-colors cursor-pointer text-sm"
+              disabled={googleLoading}
+              className="w-full py-4 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-100 dark:text-zinc-900 text-white font-semibold rounded-2xl flex items-center justify-center gap-3 transition-colors cursor-pointer text-sm disabled:opacity-75 disabled:cursor-not-allowed"
               id="google_signin_btn"
             >
-              <svg className="h-4.5 w-4.5 shrink-0 fill-current" viewBox="0 0 24 24">
- <path
- d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
- />
- <path
- d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
- />
- <path
- d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
- />
- <path
- d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
- />
- </svg>
- {t.googleSignIn}
+              {googleLoading ? (
+                <Loader2 className="h-4.5 w-4.5 animate-spin" />
+              ) : (
+                <svg className="h-4.5 w-4.5 shrink-0 fill-current" viewBox="0 0 24 24">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                </svg>
+              )}
+              {googleLoading ? (lang === 'bn' ? 'লগইন হচ্ছে...' : 'Signing in...') : t.googleSignIn}
             </button>
             <button
               onClick={handleGuestSignIn}
@@ -498,11 +553,14 @@ export default function App() {
  )}
 
  {/* Secure Sync Notice */}
- <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 p-4 rounded-2xl text-[11px] text-emerald-800 dark:text-emerald-300 font-bold leading-normal">
- {lang === 'bn' 
- ? '🔒 গ্লোবাল অ্যাকাউন্ট ব্যাকআপ আবশ্যক: আপনার হিসাব খাতার ডেটা সুরক্ষিত রাখতে এবং ভুলবশত হিসাব নষ্ট না করতে গুগল দিয়ে নিরাপদে লগইন করুন।'
- : '🔒 Secure Account Backup Required: Sign in with Google to protect your ledger calculations from data loss and sync automatically across all devices.'}
- </div>
+  <div className="bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 p-4 rounded-2xl text-[11px] text-emerald-800 dark:text-emerald-300 font-bold leading-normal flex items-start gap-2">
+    <Lock className="w-4 h-4 text-orange-500 dark:text-orange-400 shrink-0 mt-0.5" />
+    <span>
+      {lang === 'bn' 
+      ? 'গ্লোবাল অ্যাকাউন্ট ব্যাকআপ আবশ্যক: আপনার হিসাব খাতার ডেটা সুরক্ষিত রাখতে এবং ভুলবশত হিসাব নষ্ট না করতে গুগল দিয়ে নিরাপদে লগইন করুন।'
+      : 'Secure Account Backup Required: Sign in with Google to protect your ledger calculations from data loss and sync automatically across all devices.'}
+    </span>
+  </div>
 
  <div className="text-[10px] text-center text-zinc-400 dark:text-zinc-500 px-4 font-bold leading-normal">
  {t.offlineNotice}
@@ -521,7 +579,7 @@ export default function App() {
  <header className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 py-3.5 px-4 sm:px-6 sticky top-0 z-30 shadow-md">
  <div className="max-w-6xl mx-auto flex items-center justify-between">
  <div className="flex items-center gap-3">
- <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-white shadow-md">
+ <div className="w-10 h-10 rounded-xl bg-[#009966] flex items-center justify-center text-white shadow-md">
  <BookOpen className="w-5 h-5 stroke-[2.5]" />
  </div>
  <h1 className="text-lg sm:text-xl font-black text-zinc-900 dark:text-white tracking-tight leading-tight">{t.appName}</h1>
@@ -561,6 +619,7 @@ export default function App() {
  onOpenQuickEntry={openQuickEntry}
  onSelectCustomer={navigateToCustomer}
  lang={lang}
+ onViewDailyTxs={() => navigateTo('daily_transactions')}
  />
  )}
 
@@ -578,6 +637,7 @@ export default function App() {
  setSelectedCustomerId={(id) => navigateTo('customers', id)}
  lang={lang}
  triggerConfirm={triggerConfirm}
+ swipeGesturesEnabled={swipeGesturesEnabled}
  />
  )}
 
@@ -589,29 +649,197 @@ export default function App() {
  toggleReminder={toggleReminder}
  deleteReminder={deleteReminder}
  dailyReminderTime={settings?.dailyReminderTime || '09:00'}
- updateSettings={updateSettings}
+updateSettings={updateSettings}
  lang={lang}
  />
  )}
 
  {currentTab === 'settings' && (
- <SettingsManager 
- settings={settings}
- updateTheme={handleThemeChange}
- customers={customers}
- transactions={transactions}
- onSignOut={handleSignOut}
- lang={lang}
- onLangChange={handleLangChange}
- deferredPrompt={deferredPrompt}
- onInstallComplete={() => setDeferredPrompt(null)}
- />
- )}
- </div>
- )}
- </main>
+  <SettingsManager 
+         theme={theme}
+         settings={settings}
+         updateTheme={handleThemeChange}
+         customers={customers}
+         transactions={transactions}
+         onSignOut={handleSignOut}
+         lang={lang}
+         onLangChange={handleLangChange}
+         deferredPrompt={deferredPrompt}
+         onInstallComplete={() => setDeferredPrompt(null)}
+         trashCustomers={trashCustomers}
+         restoreCustomer={restoreCustomer}
+         permanentlyDeleteCustomer={permanentlyDeleteCustomer}
+         emptyTrash={emptyTrash}
+         swipeGesturesEnabled={swipeGesturesEnabled}
+         onSwipeGesturesToggle={(val) => {
+           setSwipeGesturesEnabled(val);
+           localStorage.setItem('swipe_gestures_enabled', val ? 'true' : 'false');
+         }}
+       />
+  )}
 
- {/* FAST ACCESS FLOATING TRIGGER (Only home & customers) */}
+      {currentTab === 'daily_transactions' && (
+        <div className="space-y-4 no-select animate-reveal pb-24">
+          
+          {/* Header Row */}
+          <div className="flex items-center justify-between gap-3 shrink-0">
+            {/* Left side: Back Button & Title */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => navigateTo('home')}
+                className="p-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+              >
+                <ArrowLeft className="w-5 h-5 text-zinc-650 dark:text-zinc-350" />
+              </button>
+              <div>
+                <h2 className="text-lg font-black text-zinc-900 dark:text-white tracking-tight leading-tight">
+                  {lang === 'bn' ? 'দৈনিক লেনদেন খাতা' : 'Daily Journal Ledger'}
+                </h2>
+                <p className="text-3xs text-zinc-500 dark:text-zinc-400 font-semibold mt-0.5">
+                  {selectedDailyDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                </p>
+              </div>
+            </div>
+
+            {/* Right side: Calendar Archive Button (Native Datepicker Overlay via Ref) */}
+            <div className="relative shrink-0">
+              <input 
+                ref={dateInputRef}
+                type="date"
+                value={getLocalDateString(selectedDailyDate)}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    const [year, month, day] = e.target.value.split('-').map(Number);
+                    setSelectedDailyDate(new Date(year, month - 1, day));
+                  }
+                }}
+                className="absolute pointer-events-none opacity-0 w-0 h-0"
+                style={{ top: 0, right: 0 }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (dateInputRef.current) {
+                    try {
+                      dateInputRef.current.showPicker();
+                    } catch (err) {
+                      dateInputRef.current.click();
+                    }
+                  }
+                }}
+                className="p-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl hover:bg-zinc-50 dark:hover:bg-zinc-850 transition-colors flex items-center justify-center shadow-sm text-zinc-650 dark:text-zinc-350 cursor-pointer"
+                title={lang === 'bn' ? 'আর্কাইভ তারিখ নির্বাচন' : 'Select Archive Date'}
+              >
+                <Calendar className="w-5 h-5 text-[#009966]" />
+              </button>
+            </div>
+          </div>
+
+          {/* Prominent highly readable horizontal totals summary grid */}
+          <div className="grid grid-cols-3 gap-2 bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 shrink-0 text-center shadow-sm">
+            <div className="space-y-0.5">
+              <div className="text-3xs font-extrabold uppercase text-rose-600 dark:text-rose-455 tracking-wider">
+                {lang === 'bn' ? 'মোট বকেয়া' : 'Total Dues'}
+              </div>
+              <div className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-500">
+                +৳ {formatNumber(todayTransactions.filter(tx => tx.type === 'due').reduce((sum, tx) => sum + tx.amount, 0), lang)}
+              </div>
+            </div>
+            <div className="border-l border-zinc-200 dark:border-zinc-800 space-y-0.5">
+              <div className="text-3xs font-extrabold uppercase text-emerald-600 dark:text-emerald-455 tracking-wider">
+                {lang === 'bn' ? 'মোট আদায়' : 'Total Got'}
+              </div>
+              <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-500">
+                -৳ {formatNumber(todayTransactions.filter(tx => tx.type === 'payment').reduce((sum, tx) => sum + tx.amount, 0), lang)}
+              </div>
+            </div>
+            <div className="border-l border-zinc-200 dark:border-zinc-800 space-y-0.5">
+              <div className="text-3xs font-extrabold uppercase text-zinc-500 dark:text-zinc-400 tracking-wider">
+                {lang === 'bn' ? 'মোট হিসাব' : 'Total Tx'}
+              </div>
+              <div className="text-base sm:text-lg font-black text-zinc-850 dark:text-white">
+                {formatNumber(todayTransactions.length, lang)}
+              </div>
+            </div>
+          </div>
+
+          {/* Centered Reset to Today Button (Only when not showing current day) */}
+          {selectedDailyDate.toDateString() !== new Date().toDateString() && (
+            <div className="flex justify-center shrink-0">
+              <button
+                onClick={() => setSelectedDailyDate(new Date())}
+                className="py-2 px-4 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/30 text-emerald-650 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/80 text-xs font-bold rounded-full transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                <Calendar className="w-4 h-4 text-emerald-500" />
+                <span>{lang === 'bn' ? 'আজকের দিনে ফিরে যান' : 'Back to Today'}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Scroll-optimized ledger entries list (grows naturally, no inner scroll, thicker separator line) */}
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-lg overflow-hidden">
+            <div className="divide-y-2 divide-zinc-200/80 dark:divide-zinc-800/85">
+              {todayTransactions.length === 0 ? (
+                <div className="py-16 text-center text-zinc-400 dark:text-zinc-500">
+                  <div className="flex flex-col items-center gap-3">
+                    <ClipboardList className="w-12 h-12 stroke-[1.5]" />
+                    <p className="font-bold text-base">
+                      {lang === 'bn' ? 'আজ কোন লেনদেন হয়নি' : 'No transactions recorded'}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                todayTransactions.map(tx => (
+                  <div 
+                    key={tx.id} 
+                    onClick={() => navigateTo('customers', tx.customerId)}
+                    className="p-4 hover:bg-zinc-50/80 dark:hover:bg-zinc-850/50 transition-colors cursor-pointer flex items-center justify-between gap-4 animate-reveal"
+                  >
+                    {/* Left side details with icon */}
+                    <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                      <div className={`p-2.5 rounded-xl shrink-0 ${
+                        tx.type === 'due' 
+                          ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-455' 
+                          : 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400'
+                      }`}>
+                        {tx.type === 'due' 
+                          ? <ArrowUpRight className="w-4.5 h-4.5 stroke-[2.5]" /> 
+                          : <ArrowDownLeft className="w-4.5 h-4.5 stroke-[2.5]" />
+                        }
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[17px] sm:text-[18px] font-extrabold text-zinc-850 dark:text-zinc-150 truncate leading-snug">
+                          {tx.customerName}
+                        </div>
+                        <div className="text-sm sm:text-[15px] text-zinc-550 dark:text-zinc-400 truncate mt-0.5" title={tx.description}>
+                          {tx.description || (tx.type === 'due' ? (lang === 'bn' ? 'বকেয়া' : 'Due') : (lang === 'bn' ? 'জমা' : 'Payment'))}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Right side details */}
+                    <div className="text-right shrink-0">
+                      <div className={`font-black text-lg sm:text-xl ${
+                        tx.type === 'due' ? 'text-rose-600 dark:text-rose-455' : 'text-emerald-600 dark:text-emerald-400'
+                      }`}>
+                        {tx.type === 'due' ? '+' : '-'} ৳ {formatNumber(tx.amount, lang)}
+                      </div>
+                      <div className="font-extrabold text-zinc-450 dark:text-zinc-500 mt-0.5" style={{ fontSize: '15px' }}>
+                        {new Date(parseFirestoreDate(tx.date)).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )}
+  </main>
+
+  {/* FAST ACCESS FLOATING TRIGGER (Only home & customers) */}
  {(currentTab === 'home' || currentTab === 'customers') && (
  <button
  onClick={openQuickEntry}
@@ -630,7 +858,7 @@ export default function App() {
  <button
  onClick={() => navigateTo('home')}
  className={`flex flex-col items-center justify-center gap-1 w-20 py-1 mx-auto cursor-pointer transition-colors ${
- currentTab === 'home'
+              (currentTab === 'home' || currentTab === 'daily_transactions')
  ? 'text-emerald-600 dark:text-emerald-400 font-extrabold'
  : 'text-zinc-400 dark:text-zinc-500 hover:text-zinc-650'
  }`}
@@ -693,15 +921,12 @@ export default function App() {
  />
 
  {/* APP CUSTOM HIGH-FIDELITY ALERT & CONFIRM MODALS */}
- <AnimatePresence>
  {appDialog && appDialog.isOpen && (
  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
  {/* Backdrop Overlay */}
  <motion.div
  initial={{ opacity: 0 }}
  animate={{ opacity: 1 }}
- exit={{ opacity: 0 }}
- transition={{ duration: 0.15 }}
  onClick={() => { if (appDialog.type === 'alert') setAppDialog(null); }}
  className="absolute inset-0 bg-black/80 backdrop-blur-md"
  />
@@ -710,7 +935,6 @@ export default function App() {
  <motion.div
  initial={{ opacity: 0, scale: 0.95, y: 15 }}
  animate={{ opacity: 1, scale: 1, y: 0 }}
- exit={{ opacity: 0, scale: 0.95, y: 15 }}
  className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl relative z-10 text-center space-y-6"
  >
  <div className="space-y-3">
@@ -746,7 +970,6 @@ export default function App() {
  </motion.div>
  </div>
  )}
- </AnimatePresence>
 
  </div>
  );
