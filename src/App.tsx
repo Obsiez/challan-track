@@ -256,7 +256,7 @@ export default function App() {
  });
  
  if (todaysCash > 0) {
- new window.Notification(lang === 'bn' ? 'আজকের নগদ আদায়' : 'Daily Cash Summary', {
+ showNotification(lang === 'bn' ? 'আজকের নগদ আদায়' : 'Daily Cash Summary', {
  body: lang === 'bn' 
  ? `আজকের মোট নগদ আদায়: ৳${formatNumber(todaysCash, 'bn')}` 
  : `Total cash collected today: ৳${formatNumber(todaysCash, 'en')}`,
