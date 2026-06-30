@@ -215,6 +215,8 @@ interface CustomerManagerProps {
   swipeGesturesEnabled?: boolean;
   highlightedTxId?: string | null;
   setHighlightedTxId?: (id: string | null) => void;
+  hasMoreTxs: boolean;
+  loadMoreTransactions: () => void;
 }
 
 export default function CustomerManager({
@@ -232,7 +234,7 @@ export default function CustomerManager({
  triggerConfirm
 ,
   swipeGesturesEnabled = true
-, highlightedTxId = null, setHighlightedTxId = () => {}}: CustomerManagerProps) {
+, highlightedTxId = null, setHighlightedTxId = () => {}, hasMoreTxs, loadMoreTransactions}: CustomerManagerProps) {
  const t = translations[lang];
 
  const [searchQuery, setSearchQuery] = useState('');
@@ -1228,10 +1230,19 @@ export default function CustomerManager({
 
   {selectedCustomerTransactions.length > 5 && (
     <div className="p-4 text-center flex justify-center gap-3">
-      {ledgerLimit < selectedCustomerTransactions.length && (
+      {(ledgerLimit < selectedCustomerTransactions.length || (selectedCustomerTransactions.length % 150 === 0 && hasMoreTxs)) && (
         <button 
           type="button"
-          onClick={() => setLedgerLimit(prev => prev + 20)}
+          onClick={() => {
+            triggerHaptic('single');
+            setLedgerLimit(prev => {
+              const newLimit = prev + 20;
+              if (newLimit > selectedCustomerTransactions.length && hasMoreTxs) {
+                loadMoreTransactions();
+              }
+              return newLimit;
+            });
+          }}
           className="flex items-center gap-1 px-5 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-full transition-colors cursor-pointer"
         >
           {lang === 'bn' ? 'আরও দেখুন' : 'Show More'}
@@ -1241,7 +1252,10 @@ export default function CustomerManager({
       {ledgerLimit > 5 && (
         <button 
           type="button"
-          onClick={() => setLedgerLimit(5)}
+          onClick={() => {
+            triggerHaptic('single');
+            setLedgerLimit(5);
+          }}
           className="flex items-center gap-1 px-5 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-full transition-colors cursor-pointer"
         >
           {lang === 'bn' ? 'কম দেখুন' : 'Show Less'}

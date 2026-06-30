@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Customer, Transaction, UserSettings } from '../types';
 import { 
- Settings, Moon, Sun, Cloud, Download, Upload, LogOut, CheckCircle2, Globe, AlertTriangle, X, RotateCcw, Trash2, Contrast 
+ Settings, Moon, Sun, Cloud, Download, Upload, LogOut, CheckCircle2, Languages, AlertTriangle, X, RotateCcw, Trash2, Contrast 
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { toast } from 'sonner';
@@ -170,7 +170,7 @@ export default function SettingsManager({
  {/* 1. LANGUAGE SELECTOR CARD */}
  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl shadow-md space-y-4">
  <h2 className="text-xl font-bold text-zinc-900 dark:text-white flex items-center gap-2">
- <Globe className="w-5 h-5 text-emerald-500" />
+ <Languages className="w-5 h-5 text-emerald-500" />
  {t.displayLang}
  </h2>
  

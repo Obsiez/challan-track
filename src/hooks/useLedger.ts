@@ -10,7 +10,8 @@ import {
  orderBy, 
  increment, 
  serverTimestamp,
- writeBatch
+ writeBatch,
+ limit
 } from 'firebase/firestore';
 import { db, auth, OperationType } from '../firebase';
 import { Customer, Transaction, Reminder, UserSettings } from '../types';
@@ -23,6 +24,12 @@ export function useLedger(userId: string | undefined) {
  const [settings, setSettings] = useState<UserSettings | null>(null);
  const [loading, setLoading] = useState(true);
  const [isOfflineFallback, setIsOfflineFallback] = useState(false);
+ const [txLimit, setTxLimit] = useState(150);
+ const [hasMoreTxs, setHasMoreTxs] = useState(true);
+
+  const loadMoreTransactions = () => {
+    setTxLimit(prev => prev + 150);
+  };
 
  const lastSubmitRef = useRef<{
    timestamp: number;
@@ -239,7 +246,7 @@ export function useLedger(userId: string | undefined) {
  }
 
  const txRef = collection(db, 'users', userId, 'transactions');
- const q = query(txRef, orderBy('date', 'desc'));
+ const q = query(txRef, orderBy('date', 'desc'), limit(txLimit));
 
  const unsubscribe = onSnapshot(q, (snapshot) => {
  const list: Transaction[] = [];
@@ -254,13 +261,18 @@ export function useLedger(userId: string | undefined) {
  });
  setTransactions(list);
  saveLocalTransactions(list);
+  if (snapshot.size < txLimit) {
+    setHasMoreTxs(false);
+  } else {
+    setHasMoreTxs(true);
+  }
  }, (error) => {
  console.warn("Firestore error syncing transactions, using offline cache fallback:", error);
  loadLocalData();
  });
 
  return () => unsubscribe();
- }, [userId]);
+ }, [userId, txLimit]);
 
  // 4. Sync Reminders collection
  useEffect(() => {
@@ -1281,6 +1293,8 @@ export function useLedger(userId: string | undefined) {
     restoreCustomer,
     permanentlyDeleteCustomer,
     emptyTrash,
-    importLedgerData
+    importLedgerData,
+    hasMoreTxs,
+    loadMoreTransactions
   };
 }

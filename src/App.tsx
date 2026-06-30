@@ -219,7 +219,9 @@ export default function App() {
  restoreCustomer,
  permanentlyDeleteCustomer,
  emptyTrash,
- importLedgerData
+ importLedgerData,
+ hasMoreTxs,
+ loadMoreTransactions
  } = useLedger(user?.uid);
 
   const [selectedDailyDate, setSelectedDailyDate] = useState<Date>(new Date());
@@ -638,7 +640,7 @@ export default function App() {
  updateCustomerDetails={updateCustomerDetails}
  deleteCustomer={deleteCustomer}
  selectedCustomerId={selectedCustomerIdForDetail}
- setSelectedCustomerId={(id) => navigateTo('customers', id)}
+ setSelectedCustomerId={(id) => navigateTo('customers', id)} hasMoreTxs={hasMoreTxs} loadMoreTransactions={loadMoreTransactions}
  lang={lang}
  triggerConfirm={triggerConfirm}
  swipeGesturesEnabled={swipeGesturesEnabled}
