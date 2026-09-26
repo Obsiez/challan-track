@@ -12,10 +12,12 @@ import {
  serverTimestamp,
  writeBatch,
  limit,
- where
+ where,
+ getCountFromServer,
+ getDocs
 } from 'firebase/firestore';
 import { db, auth, OperationType } from '../firebase';
-import { Customer, Transaction, Reminder, UserSettings } from '../types';
+import { Customer, Transaction, Reminder, UserSettings, SavingGoal, GoalContribution } from '../types';
 
 export function useLedger(
   userId: string | undefined, 

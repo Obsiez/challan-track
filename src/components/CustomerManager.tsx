@@ -270,6 +270,7 @@ interface CustomerManagerProps {
   loadMoreTransactions: () => void;
   customerTxLimit?: number;
   resetCustomerTxLimit?: () => void;
+  activeCustomerTxCount?: number;
 }
 
 export default function CustomerManager({
@@ -291,7 +292,8 @@ export default function CustomerManager({
   hasMoreTxs,
   loadMoreTransactions,
   customerTxLimit = 5,
-  resetCustomerTxLimit = () => {}
+  resetCustomerTxLimit = () => {},
+  activeCustomerTxCount = 0
 }: CustomerManagerProps) {
  const t = translations[lang];
 
@@ -445,7 +447,7 @@ export default function CustomerManager({
       
       lastSwappedTargetIdRef.current = targetId; // Lock target to prevent back-and-forth vibration
       saveCustomOrder(updatedOrder);
-      triggerHaptic('light'); // subtle swap haptic
+      triggerHaptic('tick'); // subtle swap haptic
     }
   };
 
@@ -1404,6 +1406,7 @@ if (sortBy === 'custom') {
     const draggedIndex = filteredCustomers.findIndex(item => item.id === draggedCustomerId);
     const targetIndex = filteredCustomers.findIndex(item => item.id === c.id);
     const insertDirection = draggedIndex < targetIndex ? 'below' : 'above';
+    const draggedCustomerName = customers.find(item => item.id === draggedCustomerId)?.name || '';
 
     return (
       <div 
@@ -1421,7 +1424,7 @@ if (sortBy === 'custom') {
             exit={{ opacity: 0, height: 0, marginBottom: 0 }}
             className="w-full"
           >
-            <UserSilhouettePlaceholder lang={lang} />
+            <UserSilhouettePlaceholder lang={lang} name={draggedCustomerName} />
           </motion.div>
         )}
 
@@ -1532,7 +1535,7 @@ if (sortBy === 'custom') {
             exit={{ opacity: 0, height: 0, marginTop: 0 }}
             className="w-full"
           >
-            <UserSilhouettePlaceholder lang={lang} />
+            <UserSilhouettePlaceholder lang={lang} name={draggedCustomerName} />
           </motion.div>
         )}
       </div>

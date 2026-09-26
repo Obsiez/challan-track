@@ -15,7 +15,7 @@ interface GoalsManagerProps {
     targetAmount: number,
     frequency: 'daily' | 'weekly' | 'monthly' | 'flexible',
     installmentAmount?: number,
-    type: 'savings' | 'deposit',
+    type?: 'savings' | 'deposit',
     customerId?: string,
     customerName?: string
   ) => Promise<string | null>;

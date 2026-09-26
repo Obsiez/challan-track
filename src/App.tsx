@@ -659,6 +659,7 @@ export default function App() {
  deleteCustomer={deleteCustomer}
  selectedCustomerId={selectedCustomerIdForDetail}
  setSelectedCustomerId={(id) => navigateTo('customers', id)} hasMoreTxs={hasMoreCustomerTxs} loadMoreTransactions={loadMoreCustomerTransactions} customerTxLimit={customerTxLimit} resetCustomerTxLimit={resetCustomerTxLimit}
+ activeCustomerTxCount={activeCustomerTxCount}
  lang={lang}
  triggerConfirm={triggerConfirm}
  swipeGesturesEnabled={swipeGesturesEnabled}
