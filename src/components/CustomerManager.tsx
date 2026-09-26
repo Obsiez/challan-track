@@ -2224,7 +2224,7 @@ if (sortBy === 'custom') {
 
         {/* Image Preview Container */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-zinc-950/90 dark:bg-black flex justify-center items-start hide-scrollbar">
-          <div className="max-w-[320px] w-full filter drop-shadow-[0_20px_25px_rgba(0,0,0,0.6)]">
+          <div className="max-w-[270px] sm:max-w-[285px] w-full filter drop-shadow-[0_20px_25px_rgba(0,0,0,0.6)]">
             <img 
               src={receiptResult.dataUrl} 
               alt="Customer Receipt" 
