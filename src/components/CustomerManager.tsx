@@ -1456,8 +1456,8 @@ if (sortBy === 'custom') {
         onClick={() => { triggerHaptic('single'); setFilterStatus('due'); }}
         className={`px-3.5 py-2 rounded-xl font-bold text-sm transition-colors shrink-0 cursor-pointer ${
           filterStatus === 'due'
-            ? 'bg-rose-600 text-white shadow-sm border border-rose-600'
-            : 'bg-white text-rose-600 border border-rose-200 dark:bg-zinc-900 dark:border-rose-500/30 dark:text-rose-400 hover:bg-rose-50/30 dark:hover:bg-rose-950/10'
+            ? 'bg-[#ec003f] text-white shadow-sm border border-[#ec003f]'
+            : 'bg-white text-[#ec003f] border border-[#ec003f]/30 dark:bg-zinc-900 dark:border-[#ec003f]/30 dark:text-[#ec003f] hover:bg-[#ec003f]/10 dark:hover:bg-[#ec003f]/10'
         }`}
       >
         {lang === 'bn' ? 'বকেয়া খতিয়ান' : 'Has Outstanding'} ({formatNumber(customers.filter(c => c.outstandingDue > 0).length, lang)})
@@ -1478,8 +1478,8 @@ if (sortBy === 'custom') {
         onClick={() => { triggerHaptic('single'); setFilterStatus('overpaid'); }}
         className={`px-3.5 py-2 rounded-xl font-bold text-sm transition-colors shrink-0 cursor-pointer ${
           filterStatus === 'overpaid'
-            ? 'bg-blue-600 text-white shadow-sm border border-blue-600'
-            : 'bg-white text-blue-600 border border-blue-200 dark:bg-zinc-900 dark:border-blue-500/30 dark:text-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-950/10'
+            ? 'bg-[#00d3f2] text-zinc-950 font-bold shadow-sm border border-[#00d3f2]'
+            : 'bg-white text-[#00a8c2] dark:text-[#00d3f2] border border-[#00d3f2]/30 dark:bg-zinc-900 dark:border-[#00d3f2]/30 hover:bg-[#00d3f2]/10 dark:hover:bg-[#00d3f2]/10'
         }`}
       >
         {lang === 'bn' ? 'অতিরিক্ত জমা' : 'Overpaid'} ({formatNumber(customers.filter(c => c.outstandingDue < 0).length, lang)})
@@ -1643,9 +1643,9 @@ if (sortBy === 'custom') {
  					<div className="min-w-0 pr-1">
  						<div className={`text-xl font-black truncate ${
  							c.outstandingDue > 0
- 								? 'text-rose-800 dark:text-rose-400'
+ 								? 'text-[#ec003f]'
  								: c.outstandingDue < 0
- 									? 'text-sky-600 dark:text-sky-400'
+ 									? 'text-[#00d3f2]'
  									: 'text-emerald-700 dark:text-emerald-400'
  						}`}>
  							{c.outstandingDue === 0 ? (
@@ -1862,9 +1862,9 @@ if (sortBy === 'custom') {
  <span className="text-2xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block">{t.currentBalance}</span>
  <span className={`text-2xl font-black mt-1 ${
  selectedCustomer.outstandingDue > 0 
- ? 'text-rose-800 dark:text-rose-400' 
+ ? 'text-[#ec003f]' 
  : selectedCustomer.outstandingDue < 0 
- ? 'text-sky-600 dark:text-sky-400' 
+ ? 'text-[#00d3f2]' 
  : 'text-emerald-700 dark:text-emerald-400'
  }`}>
  {selectedCustomer.outstandingDue === 0 ? t.settled : `৳ ${formatNumber(selectedCustomer.outstandingDue, lang)}`}
@@ -2612,10 +2612,10 @@ if (sortBy === 'custom') {
             <div className="flex justify-between items-baseline">
               <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'বর্তমান ব্যালেন্স' : 'Current Balance'}</span>
               <span className={`text-sm font-black ${
-                deletingCustomer.outstandingDue > 0 
-                  ? 'text-rose-600 dark:text-rose-455' 
-                  : deletingCustomer.outstandingDue < 0 
-                  ? 'text-cyan-600 dark:text-cyan-400' 
+                deletingCustomer.outstandingDue > 0
+                  ? 'text-[#ec003f]'
+                  : deletingCustomer.outstandingDue < 0
+                  ? 'text-[#00d3f2]' 
                   : 'text-zinc-500'
               }`}>
                 {deletingCustomer.outstandingDue === 0 ? (lang === 'bn' ? 'পরিশোধিত' : 'Settled') : `৳ ${formatNumber(deletingCustomer.outstandingDue, lang)}`}

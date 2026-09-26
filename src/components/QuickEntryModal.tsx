@@ -323,7 +323,7 @@ export default function QuickEntryModal({
  onClick={() => setType('due')}
  className={`py-5 px-4 rounded-2xl flex flex-col items-center justify-center gap-2 border-3 transition-all cursor-pointer ${
  type === 'due'
- ? 'bg-rose-50 border-rose-500 text-rose-700 dark:bg-rose-950/20 dark:border-rose-500 dark:text-rose-400 font-bold shadow-lg shadow-rose-100 dark:shadow-none'
+ ? 'bg-rose-50 border-[#ec003f] text-[#ec003f] dark:bg-rose-950/20 dark:border-[#ec003f] dark:text-rose-400 font-bold shadow-lg shadow-rose-100 dark:shadow-none'
  : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-150 dark:bg-zinc-850 dark:border-zinc-800 dark:text-zinc-400'
  }`}
  id="tab_give_due"
@@ -598,7 +598,7 @@ export default function QuickEntryModal({
                 disabled={isSubmitting}
                 className={`w-full py-4.5 rounded-2xl font-extrabold text-lg flex items-center justify-center shadow-lg transition-all cursor-pointer ${
                   type === 'due' 
-                    ? 'bg-rose-600 hover:bg-rose-700 text-white dark:bg-rose-500 dark:hover:bg-rose-400 dark:text-zinc-950 shadow-rose-200 dark:shadow-none' 
+                    ? 'bg-[#ec003f] hover:bg-[#d40038] text-white dark:bg-[#ec003f] dark:hover:bg-[#d40038] dark:text-white shadow-rose-200 dark:shadow-none' 
                     : 'bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-500 dark:hover:bg-emerald-400 dark:text-zinc-950 shadow-emerald-200 dark:shadow-none'
                 } ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                 id="save_transaction_btn"

@@ -409,7 +409,7 @@ export default function AnalyticsManager({ customers, monthlySummaries, lang }: 
            <span className="text-xs font-black text-zinc-400 w-5 shrink-0">#{formatNumber(i + 1, lang)}</span>
            <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200 truncate">{c.name}</span>
           </div>
-          <span className="text-sm font-black text-rose-600 dark:text-rose-400 shrink-0 ml-2">৳ {formatNumber(c.outstandingDue, lang)}</span>
+          <span className="text-sm font-black text-[#ec003f] shrink-0 ml-2">৳ {formatNumber(c.outstandingDue, lang)}</span>
          </div>
         ))}
        </div>

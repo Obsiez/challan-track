@@ -564,6 +564,11 @@ const lastSubmitRef = useRef<{
         list.push({
           ...data,
           id: docSnap.id,
+          savedAmount: Number(data.savedAmount) || 0,
+          targetAmount: Number(data.targetAmount) || 0,
+          installmentAmount: data.installmentAmount ? Number(data.installmentAmount) : undefined,
+          contributions: Array.isArray(data.contributions) ? data.contributions : [],
+          status: data.status || 'active',
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
           updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt)
         } as SavingGoal);
@@ -578,6 +583,11 @@ const lastSubmitRef = useRef<{
         if (stored) {
           setGoals(JSON.parse(stored).map((g: any) => ({
             ...g,
+            savedAmount: Number(g.savedAmount) || 0,
+            targetAmount: Number(g.targetAmount) || 0,
+            installmentAmount: g.installmentAmount ? Number(g.installmentAmount) : undefined,
+            contributions: Array.isArray(g.contributions) ? g.contributions : [],
+            status: g.status || 'active',
             createdAt: new Date(g.createdAt),
             updatedAt: new Date(g.updatedAt)
           })));
@@ -1893,7 +1903,8 @@ const lastSubmitRef = useRef<{
     installmentAmount?: number,
     type: 'savings' | 'deposit' = 'savings',
     customerId?: string,
-    customerName?: string
+    customerName?: string,
+    notes?: string
   ) => {
     if (!userId) return null;
     const customGoalId = doc(collection(db, 'temp')).id;
@@ -1901,13 +1912,14 @@ const lastSubmitRef = useRef<{
       id: customGoalId,
       userId,
       title: title.trim(),
-      targetAmount,
+      targetAmount: Number(targetAmount) || 0,
       savedAmount: 0,
       frequency,
-      installmentAmount,
+      installmentAmount: installmentAmount && installmentAmount > 0 ? Number(installmentAmount) : undefined,
       type,
-      customerId,
-      customerName,
+      customerId: customerId || undefined,
+      customerName: customerName || undefined,
+      notes: notes?.trim() || undefined,
       status: 'active',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -1941,11 +1953,11 @@ const lastSubmitRef = useRef<{
     amount: number,
     note: string = '',
     recordAsCustomerTransaction: boolean = false
-  ) => {
-    if (!userId) return;
+  ): Promise<SavingGoal | null> => {
+    if (!userId || !amount || amount <= 0) return null;
 
     const goal = goals.find(g => g.id === goalId);
-    if (!goal) return;
+    if (!goal) return null;
 
     const contributionId = doc(collection(db, 'temp')).id;
     const newContribution: GoalContribution = {
@@ -1955,33 +1967,47 @@ const lastSubmitRef = useRef<{
       note: note.trim()
     };
 
-    const updatedContributions = [...goal.contributions, newContribution];
-    const newSavedAmount = goal.savedAmount + amount;
-    const isCompleted = newSavedAmount >= goal.targetAmount;
-    const newStatus = isCompleted ? 'completed' as const : goal.status;
+    const currentContributions = Array.isArray(goal.contributions) ? goal.contributions : [];
+    const updatedContributions = [...currentContributions, newContribution];
+    const newSavedAmount = (Number(goal.savedAmount) || 0) + amount;
+    const isCompleted = newSavedAmount >= (Number(goal.targetAmount) || 0);
+    const newStatus = isCompleted ? ('completed' as const) : goal.status;
 
-    const updatedGoals = goals.map(g => 
-      g.id === goalId 
-        ? { ...g, savedAmount: newSavedAmount, status: newStatus, contributions: updatedContributions, updatedAt: new Date() }
-        : g
-    );
+    const updatedGoal: SavingGoal = {
+      ...goal,
+      savedAmount: newSavedAmount,
+      status: newStatus,
+      contributions: updatedContributions,
+      updatedAt: new Date()
+    };
+
+    const updatedGoals = goals.map(g => (g.id === goalId ? updatedGoal : g));
 
     setGoals(updatedGoals);
     saveLocalGoals(updatedGoals);
 
-    // Handle optional ledger recording (Recommended Settings: log as gotCash/payment transaction)
-    if (recordAsCustomerTransaction && goal.customerId && goal.customerName) {
+    // Handle optional ledger recording (log as payment transaction in customer's account)
+    if (recordAsCustomerTransaction && goal.customerId) {
+      const linkedCust = customers.find(c => c.id === goal.customerId);
+      const cName = goal.customerName || linkedCust?.name || 'Customer';
+      const cPhone = linkedCust?.phone || '';
+      const txDesc = note.trim()
+        ? `${note.trim()} (${goal.title})`
+        : `Goal: ${goal.title}`;
+
       await addTransaction(
         goal.customerId,
         'payment',
         amount,
-        note.trim() || `${note.trim() || 'Installment'} - ${goal.title}`,
+        txDesc,
         new Date(),
-        { name: goal.customerName, phone: '' }
+        { name: cName, phone: cPhone }
       );
     }
 
-    if (userId === 'local-guest-session' || isOfflineFallback) return;
+    if (userId === 'local-guest-session' || isOfflineFallback) {
+      return updatedGoal;
+    }
 
     const goalDocRef = doc(db, 'users', userId, 'goals', goalId);
     try {
@@ -1994,6 +2020,8 @@ const lastSubmitRef = useRef<{
     } catch (err) {
       console.warn("Firestore addGoalContribution failed, saved locally:", err);
     }
+
+    return updatedGoal;
   };
 
   const deleteGoal = async (goalId: string) => {
