@@ -4,10 +4,79 @@ import { Language, formatNumber } from './translations';
 function parseTxDate(raw: any): Date {
   if (!raw) return new Date();
   if (raw instanceof Date) return raw;
-  if (typeof raw.toDate === 'function') return raw.toDate();
+  if (typeof raw.toDate === 'function') {
+    try {
+      return raw.toDate();
+    } catch {
+      return new Date();
+    }
+  }
   if (typeof raw === 'number') return new Date(raw);
   const parsed = new Date(raw);
   return isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function safeFormatNumber(val: any, lang: Language): string {
+  const num = typeof val === 'number' && !isNaN(val) ? val : Number(val) || 0;
+  try {
+    return formatNumber(num, lang);
+  } catch {
+    return String(num);
+  }
+}
+
+/**
+ * Universal cross-browser rounded rectangle path drawing.
+ * Fallback to standard arcTo if ctx.roundRect is not implemented.
+ */
+function drawRoundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  radius: number
+) {
+  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
+  if (typeof (ctx as any).roundRect === 'function') {
+    try {
+      (ctx as any).roundRect(x, y, w, h, r);
+      return;
+    } catch {
+      // fallback if native roundRect fails
+    }
+  }
+
+  // Universal arcTo path
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
+/**
+ * Converts a data:image/png;base64 string to a Blob reliably and synchronously.
+ */
+function dataUrlToBlob(dataUrl: string): Blob {
+  try {
+    const parts = dataUrl.split(',');
+    const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
+    const binary = atob(parts[1]);
+    const array = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      array[i] = binary.charCodeAt(i);
+    }
+    return new Blob([array], { type: mime });
+  } catch (e) {
+    console.warn('dataUrlToBlob fallback:', e);
+    return new Blob([], { type: 'image/png' });
+  }
 }
 
 export interface ReceiptImageResult {
@@ -21,24 +90,29 @@ export interface ReceiptImageResult {
  */
 export async function generateReceiptPng(
   customer: Customer,
-  transactions: Transaction[],
+  transactions: Transaction[] = [],
   lang: Language = 'en'
 ): Promise<ReceiptImageResult> {
-  const customerName = customer.name;
-  const customerPhone = customer.phone?.trim() || (lang === 'bn' ? 'প্রযোজ্য নয়' : 'N/A');
-  const outstandingDue = customer.outstandingDue;
+  const customerName = customer?.name?.trim() || 'Customer';
+  const customerPhone = customer?.phone?.trim() || (lang === 'bn' ? 'প্রযোজ্য নয়' : 'N/A');
+  const outstandingDue = typeof customer?.outstandingDue === 'number' && !isNaN(customer.outstandingDue)
+    ? customer.outstandingDue
+    : Number(customer?.outstandingDue) || 0;
 
   const cleanPrefix = customerName.replace(/[^\w\u0980-\u09FF]/g, '_').replace(/_+/g, '_').trim() || 'Customer';
   const fileName = `${cleanPrefix}_Receipt.png`;
-  const slipNo = `CT-${customer.id.slice(-6).toUpperCase()}`;
+  const custId = customer?.id ? String(customer.id) : '000000';
+  const slipNo = `CT-${custId.slice(-6).toUpperCase()}`;
 
-  const totalDuesCalculated = transactions
-    .filter(tx => tx.type === 'due')
-    .reduce((sum, tx) => sum + tx.amount, 0);
+  const safeTransactions = Array.isArray(transactions) ? transactions : [];
 
-  const totalPaymentsCalculated = transactions
-    .filter(tx => tx.type === 'payment')
-    .reduce((sum, tx) => sum + tx.amount, 0);
+  const totalDuesCalculated = safeTransactions
+    .filter(tx => tx && tx.type === 'due')
+    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
+
+  const totalPaymentsCalculated = safeTransactions
+    .filter(tx => tx && tx.type === 'payment')
+    .reduce((sum, tx) => sum + (Number(tx.amount) || 0), 0);
 
   const isSettled = outstandingDue === 0;
   const isDue = outstandingDue > 0;
@@ -50,9 +124,9 @@ export async function generateReceiptPng(
   const contentWidth = width - padX * 2;
 
   // Exact section heights for pixel-perfect vertical alignment
-  const getRowHeight = (tx: Transaction) => (tx.description?.trim() ? 56 : 42);
-  const rowsHeight = transactions.length > 0 
-    ? transactions.reduce((acc, tx) => acc + getRowHeight(tx), 0)
+  const getRowHeight = (tx: Transaction) => (tx?.description?.trim() ? 56 : 42);
+  const rowsHeight = safeTransactions.length > 0 
+    ? safeTransactions.reduce((acc, tx) => acc + getRowHeight(tx), 0)
     : 52;
 
   const topPad = 32;
@@ -90,12 +164,12 @@ export async function generateReceiptPng(
 
   // Create canvas
   const canvas = document.createElement('canvas');
-  canvas.width = width * scale;
-  canvas.height = totalHeight * scale;
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(totalHeight * scale);
   const ctx = canvas.getContext('2d');
 
   if (!ctx) {
-    throw new Error('Canvas 2D context is not available');
+    throw new Error('Canvas 2D context is not supported in this browser');
   }
 
   // Scale all drawing operations by scale factor for Retina sharpness
@@ -132,7 +206,7 @@ export async function generateReceiptPng(
   const tagWidth = ctx.measureText(tagText).width + 20;
   ctx.fillStyle = '#F3F4F6';
   ctx.beginPath();
-  ctx.roundRect((width - tagWidth) / 2, curY + 54, tagWidth, 20, 10);
+  drawRoundRect(ctx, (width - tagWidth) / 2, curY + 54, tagWidth, 20, 10);
   ctx.fill();
   ctx.fillStyle = '#4B5563';
   ctx.fillText(tagText, width / 2, curY + 68);
@@ -156,7 +230,7 @@ export async function generateReceiptPng(
   const metaBoxY = curY;
   ctx.fillStyle = '#F9FAFB';
   ctx.beginPath();
-  ctx.roundRect(padX, metaBoxY, contentWidth, metaBoxHeight, 12);
+  drawRoundRect(ctx, padX, metaBoxY, contentWidth, metaBoxHeight, 12);
   ctx.fill();
   ctx.strokeStyle = '#E5E7EB';
   ctx.lineWidth = 1;
@@ -209,7 +283,7 @@ export async function generateReceiptPng(
   // 3. TABLE HEADER
   ctx.fillStyle = '#111827';
   ctx.beginPath();
-  ctx.roundRect(padX, curY, contentWidth, tableHeaderHeight, 6);
+  drawRoundRect(ctx, padX, curY, contentWidth, tableHeaderHeight, 6);
   ctx.fill();
 
   ctx.fillStyle = '#FFFFFF';
@@ -226,21 +300,21 @@ export async function generateReceiptPng(
   curY += tableHeaderHeight + tableMargin;
 
   // 4. TRANSACTION ROWS
-  if (transactions.length === 0) {
+  if (safeTransactions.length === 0) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#9CA3AF';
     ctx.font = '600 12px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
     ctx.fillText(lang === 'bn' ? 'কোন লেনদেন পাওয়া যায়নি' : 'No transactions recorded', width / 2, curY + 28);
-    curY += 50;
+    curY += 52;
   } else {
-    transactions.forEach((tx) => {
+    safeTransactions.forEach((tx) => {
       const txDate = parseTxDate(tx.date);
       const rowDateStr = txDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: 'short', year: '2-digit' });
       const rowTimeStr = txDate.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' });
       const isTxDue = tx.type === 'due';
       const typeLabel = isTxDue ? (lang === 'bn' ? 'বকেয়া' : 'DUE') : (lang === 'bn' ? 'জমা' : 'PAID');
       const sign = isTxDue ? '+' : '-';
-      const amountStr = `${sign} ৳${formatNumber(tx.amount, lang)}`;
+      const amountStr = `${sign} ৳${safeFormatNumber(tx.amount, lang)}`;
       const hasDesc = !!tx.description?.trim();
       const rowH = hasDesc ? 56 : 42;
 
@@ -266,7 +340,7 @@ export async function generateReceiptPng(
       const typeBadgeY = curY + 6;
 
       ctx.beginPath();
-      ctx.roundRect(typeBadgeX, typeBadgeY, typeBadgeWidth, typeBadgeHeight, 4);
+      drawRoundRect(ctx, typeBadgeX, typeBadgeY, typeBadgeWidth, typeBadgeHeight, 4);
       if (isTxDue) {
         ctx.fillStyle = '#FFF1F2';
         ctx.fill();
@@ -311,7 +385,7 @@ export async function generateReceiptPng(
   // 5. TOTALS SECTION
   ctx.fillStyle = '#F9FAFB';
   ctx.beginPath();
-  ctx.roundRect(padX, curY, contentWidth, totalsBoxHeight, 12);
+  drawRoundRect(ctx, padX, curY, contentWidth, totalsBoxHeight, 12);
   ctx.fill();
   ctx.strokeStyle = '#E5E7EB';
   ctx.lineWidth = 1;
@@ -325,7 +399,7 @@ export async function generateReceiptPng(
   ctx.textAlign = 'right';
   ctx.font = 'bold 12px "SF Mono", "Inter", sans-serif';
   ctx.fillStyle = '#e0385e';
-  ctx.fillText(`+ ৳${formatNumber(totalDuesCalculated, lang)}`, width - padX - 16, curY + 26);
+  ctx.fillText(`+ ৳${safeFormatNumber(totalDuesCalculated, lang)}`, width - padX - 16, curY + 26);
 
   // Total Paid
   ctx.textAlign = 'left';
@@ -335,13 +409,13 @@ export async function generateReceiptPng(
   ctx.textAlign = 'right';
   ctx.font = 'bold 12px "SF Mono", "Inter", sans-serif';
   ctx.fillStyle = '#009966';
-  ctx.fillText(`- ৳${formatNumber(totalPaymentsCalculated, lang)}`, width - padX - 16, curY + 50);
+  ctx.fillText(`- ৳${safeFormatNumber(totalPaymentsCalculated, lang)}`, width - padX - 16, curY + 50);
 
   curY += totalsBoxHeight + totalsSpacing;
 
   // 6. NET BALANCE HIGHLIGHT CARD
   ctx.beginPath();
-  ctx.roundRect(padX, curY, contentWidth, netBoxHeight, 14);
+  drawRoundRect(ctx, padX, curY, contentWidth, netBoxHeight, 14);
 
   let netBg = '#FFF1F2';
   let netBorder = '#FECDD3';
@@ -373,7 +447,7 @@ export async function generateReceiptPng(
 
   const balanceDisplay = isSettled
     ? '৳ 0'
-    : `${outstandingDue < 0 ? '-' : ''}৳ ${formatNumber(Math.abs(outstandingDue), lang)}`;
+    : `${outstandingDue < 0 ? '-' : ''}৳ ${safeFormatNumber(Math.abs(outstandingDue), lang)}`;
 
   ctx.font = 'bold 24px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
   ctx.fillStyle = netColor;
@@ -439,29 +513,48 @@ export async function generateReceiptPng(
     curY + 28
   );
 
-  // Return PNG Blob and Data URL
-  return new Promise<ReceiptImageResult>((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error('Failed to create PNG blob from canvas'));
-        return;
+  // Return PNG Data URL and Blob (synchronous & reliable)
+  try {
+    const dataUrl = canvas.toDataURL('image/png');
+    const blob = dataUrlToBlob(dataUrl);
+    return { dataUrl, blob, fileName };
+  } catch (err) {
+    // Fallback if toDataURL throws
+    return new Promise<ReceiptImageResult>((resolve, reject) => {
+      if (typeof canvas.toBlob === 'function') {
+        canvas.toBlob((b) => {
+          if (b) {
+            const dataUrl = URL.createObjectURL(b);
+            resolve({ dataUrl, blob: b, fileName });
+          } else {
+            reject(new Error('Failed to export canvas to PNG blob'));
+          }
+        }, 'image/png');
+      } else {
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
-      const dataUrl = canvas.toDataURL('image/png');
-      resolve({ dataUrl, blob, fileName });
-    }, 'image/png');
-  });
+    });
+  }
 }
 
 /**
  * Triggers an instant download of the generated receipt PNG.
  */
 export function downloadReceiptImage(dataUrl: string, fileName: string) {
-  const link = document.createElement('a');
-  link.download = fileName;
-  link.href = dataUrl;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  try {
+    const link = document.createElement('a');
+    link.download = fileName;
+    link.href = dataUrl;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      if (link.parentNode) {
+        link.parentNode.removeChild(link);
+      }
+    }, 200);
+  } catch (err) {
+    console.warn('downloadReceiptImage error:', err);
+  }
 }
 
 /**
@@ -469,7 +562,7 @@ export function downloadReceiptImage(dataUrl: string, fileName: string) {
  */
 export async function copyReceiptImage(blob: Blob): Promise<boolean> {
   try {
-    if (navigator.clipboard && typeof window.ClipboardItem !== 'undefined') {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && typeof window.ClipboardItem !== 'undefined') {
       const item = new ClipboardItem({ 'image/png': blob });
       await navigator.clipboard.write([item]);
       return true;
@@ -485,17 +578,19 @@ export async function copyReceiptImage(blob: Blob): Promise<boolean> {
  */
 export async function shareReceiptImage(blob: Blob, fileName: string, customerName: string): Promise<boolean> {
   try {
-    const file = new File([blob], fileName, { type: 'image/png' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({
-        files: [file],
-        title: `Challan Track - ${customerName}`,
-        text: `Transaction Receipt for ${customerName}`
-      });
-      return true;
+    if (typeof navigator !== 'undefined' && 'canShare' in navigator && typeof File !== 'undefined') {
+      const file = new File([blob], fileName, { type: 'image/png' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `Challan Track - ${customerName}`,
+          text: `Transaction Receipt for ${customerName}`
+        });
+        return true;
+      }
     }
   } catch (err) {
-    if ((err as Error).name !== 'AbortError') {
+    if ((err as Error)?.name !== 'AbortError') {
       console.error('Web share failed:', err);
     }
   }

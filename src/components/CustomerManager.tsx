@@ -659,13 +659,18 @@ if (sortBy === 'custom') {
     try {
       const result = await generateReceiptPng(selectedCustomer, selectedCustomerTransactions, lang);
       setReceiptResult(result);
-      window.history.pushState({ modal: 'receiptPreview' }, '');
+      try {
+        window.history.pushState({ modal: 'receiptPreview' }, '');
+      } catch {
+        // history navigation fallback
+      }
       // Automatically trigger PNG download
       downloadReceiptImage(result.dataUrl, result.fileName);
       toast.success(lang === 'bn' ? 'রসিদ ইমেজ তৈরি ও ডাউনলোড হয়েছে' : 'Receipt image generated & downloaded');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Receipt generation error:', err);
-      toast.error(lang === 'bn' ? 'রসিদ ইমেজ তৈরি করতে সমস্যা হয়েছে' : 'Failed to generate receipt image');
+      const errMsg = err?.message || String(err);
+      toast.error(lang === 'bn' ? `রসিদ তৈরিতে ত্রুটি: ${errMsg}` : `Failed to generate receipt: ${errMsg}`);
     } finally {
       setIsGeneratingReceipt(false);
     }
