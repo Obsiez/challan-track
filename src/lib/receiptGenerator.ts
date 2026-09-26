@@ -26,38 +26,78 @@ function safeFormatNumber(val: any, lang: Language): string {
 }
 
 /**
- * Universal cross-browser rounded rectangle path drawing.
- * Fallback to standard arcTo if ctx.roundRect is not implemented.
+ * Draws an authentic jagged receipt cut edge at the top and bottom.
  */
-function drawRoundRect(
+function drawReceiptSilhouette(
   ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
   w: number,
   h: number,
-  radius: number
+  toothW = 8,
+  toothH = 4
 ) {
-  const r = Math.max(0, Math.min(radius, w / 2, h / 2));
-  if (typeof (ctx as any).roundRect === 'function') {
-    try {
-      (ctx as any).roundRect(x, y, w, h, r);
-      return;
-    } catch {
-      // fallback if native roundRect fails
-    }
+  ctx.beginPath();
+  ctx.moveTo(0, toothH);
+
+  // Top zigzag teeth
+  let x = 0;
+  while (x < w) {
+    ctx.lineTo(x + toothW / 2, 0);
+    ctx.lineTo(Math.min(x + toothW, w), toothH);
+    x += toothW;
   }
 
-  // Universal arcTo path
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.arcTo(x + w, y, x + w, y + r, r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-  ctx.lineTo(x + r, y + h);
-  ctx.arcTo(x, y + h, x, y + h - r, r);
-  ctx.lineTo(x, y + r);
-  ctx.arcTo(x, y, x + r, y, r);
+  // Right edge down
+  ctx.lineTo(w, h - toothH);
+
+  // Bottom zigzag teeth
+  x = w;
+  while (x > 0) {
+    ctx.lineTo(x - toothW / 2, h);
+    ctx.lineTo(Math.max(x - toothW, 0), h - toothH);
+    x -= toothW;
+  }
+
+  // Left edge up
+  ctx.lineTo(0, toothH);
   ctx.closePath();
+}
+
+function drawDashedLine(
+  ctx: CanvasRenderingContext2D,
+  y: number,
+  x1: number,
+  x2: number,
+  color = '#262931',
+  dash = [4, 3]
+) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.setLineDash(dash);
+  ctx.beginPath();
+  ctx.moveTo(x1, y);
+  ctx.lineTo(x2, y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawDoubleLine(
+  ctx: CanvasRenderingContext2D,
+  y: number,
+  x1: number,
+  x2: number,
+  color = '#2A2E38'
+) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x1, y - 1.5);
+  ctx.lineTo(x2, y - 1.5);
+  ctx.moveTo(x1, y + 1.5);
+  ctx.lineTo(x2, y + 1.5);
+  ctx.stroke();
+  ctx.restore();
 }
 
 /**
@@ -86,7 +126,7 @@ export interface ReceiptImageResult {
 }
 
 /**
- * Generates a high-resolution, professionally designed PNG receipt image for a customer's ledger.
+ * Generates an authentic, dark-background, minimalist POS receipt PNG image.
  */
 export async function generateReceiptPng(
   customer: Customer,
@@ -117,50 +157,38 @@ export async function generateReceiptPng(
   const isSettled = outstandingDue === 0;
   const isDue = outstandingDue > 0;
 
-  // Visual layout dimensions
-  const scale = 2; // 2x Retina resolution
-  const width = 640;
-  const padX = 36;
+  // Layout Constants - Ultra-compact, clean 2-line layout
+  const scale = 2; // 2x Retina resolution for sharp rendering
+  const width = 480;
+  const padX = 26;
   const contentWidth = width - padX * 2;
+  const toothH = 4;
 
-  // Exact section heights for pixel-perfect vertical alignment
-  const getRowHeight = (tx: Transaction) => (tx?.description?.trim() ? 56 : 42);
+  const getRowHeight = (tx: Transaction) => (tx?.description?.trim() ? 40 : 26);
   const rowsHeight = safeTransactions.length > 0 
     ? safeTransactions.reduce((acc, tx) => acc + getRowHeight(tx), 0)
-    : 52;
+    : 34;
 
-  const topPad = 32;
-  const headerHeight = 86;
-  const tear1Spacing = 16;
-  const metaBoxHeight = 88;
-  const metaSpacing = 16;
-  const tableHeaderHeight = 32;
-  const tableMargin = 6;
-  const tableSpacing = 12;
-  const totalsBoxHeight = 68;
-  const totalsSpacing = 14;
-  const netBoxHeight = 84;
-  const netSpacing = 14;
-  const barcodeSectionHeight = 74;
-  const tear2Spacing = 16;
-  const footerHeight = 44;
-  const bottomPad = 28;
+  const topPad = toothH + 16;
+  const headerHeight = 44;
+  const metaHeight = 60;
+  const tableHeaderHeight = 22;
+  const tableSpacing = 8;
+  const totalsHeight = 46;
+  const balanceHeight = 56;
+  const barcodeHeight = 52;
+  const footerHeight = 28;
+  const bottomPad = 14 + toothH;
 
   const totalHeight = topPad 
     + headerHeight 
-    + tear1Spacing 
-    + metaBoxHeight 
-    + metaSpacing 
+    + metaHeight 
     + tableHeaderHeight 
-    + tableMargin 
     + rowsHeight 
     + tableSpacing 
-    + totalsBoxHeight 
-    + totalsSpacing 
-    + netBoxHeight 
-    + netSpacing 
-    + barcodeSectionHeight 
-    + tear2Spacing 
+    + totalsHeight 
+    + balanceHeight 
+    + barcodeHeight 
     + footerHeight 
     + bottomPad;
 
@@ -171,357 +199,249 @@ export async function generateReceiptPng(
   const ctx = canvas.getContext('2d');
 
   if (!ctx) {
-    throw new Error('Canvas 2D context is not supported in this browser');
+    throw new Error('Canvas 2D context is not available');
   }
 
-  // Scale all drawing operations by scale factor for Retina sharpness
   ctx.scale(scale, scale);
 
-  // Background - Pure white
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, width, totalHeight);
-
-  // Outer border & soft inner frame
-  ctx.strokeStyle = '#E5E7EB';
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(10, 10, width - 20, totalHeight - 20);
-
-  let curY = topPad;
-
-  // 1. BRAND & HEADER
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#111827';
-  ctx.font = 'bold 22px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillText('CHALLAN TRACK', width / 2, curY + 22);
-
-  ctx.fillStyle = '#4B5563';
-  ctx.font = '600 11px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillText(
-    lang === 'bn' ? 'ডিজিটাল হিসাব খতিয়ান রসিদ' : 'TRANSACTION MEMO & STATEMENT',
-    width / 2,
-    curY + 42
-  );
-
-  // Decorative tag badge
-  const tagText = lang === 'bn' ? '★ গ্রাহক একাউন্ট বিবরণী ★' : '★ OFFICIAL CUSTOMER SLIP ★';
-  ctx.font = '700 9px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  const tagWidth = ctx.measureText(tagText).width + 20;
-  ctx.fillStyle = '#F3F4F6';
-  ctx.beginPath();
-  drawRoundRect(ctx, (width - tagWidth) / 2, curY + 54, tagWidth, 20, 10);
-  ctx.fill();
-  ctx.fillStyle = '#4B5563';
-  ctx.fillText(tagText, width / 2, curY + 68);
-
-  curY += headerHeight;
-
-  // Perforated tear line
+  // Background: Dark, authentic thermal slip receipt
   ctx.save();
-  ctx.strokeStyle = '#D1D5DB';
+  drawReceiptSilhouette(ctx, width, totalHeight, 8, toothH);
+  ctx.fillStyle = '#111215'; // Deep charcoal/black receipt paper
+  ctx.fill();
+  ctx.strokeStyle = '#23262D'; // Subtle outer edge line
   ctx.lineWidth = 1;
-  ctx.setLineDash([4, 4]);
-  ctx.beginPath();
-  ctx.moveTo(padX, curY);
-  ctx.lineTo(width - padX, curY);
   ctx.stroke();
   ctx.restore();
 
-  curY += tear1Spacing;
+  // Typography font families
+  const monoFont = (size: number, weight = 'normal') =>
+    `${weight} ${size}px "SF Mono", "Roboto Mono", Menlo, Consolas, "Noto Sans Bengali", monospace`;
+  const sansFont = (size: number, weight = 'normal') =>
+    `${weight} ${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Noto Sans Bengali", sans-serif`;
 
-  // 2. METADATA SECTION BOX
-  const metaBoxY = curY;
-  ctx.fillStyle = '#F9FAFB';
-  ctx.beginPath();
-  drawRoundRect(ctx, padX, metaBoxY, contentWidth, metaBoxHeight, 12);
-  ctx.fill();
-  ctx.strokeStyle = '#E5E7EB';
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  let curY = topPad;
 
+  // 1. BRAND & HEADER (Minimalist receipt style)
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#F3F4F6';
+  ctx.font = monoFont(17, 'bold');
+  ctx.fillText('CHALLAN TRACK', width / 2, curY + 16);
+
+  ctx.fillStyle = '#9CA3AF';
+  ctx.font = monoFont(10, 'normal');
+  ctx.fillText(lang === 'bn' ? 'লেনদেন রসিদ ও হিসাব' : 'TRANSACTION RECEIPT', width / 2, curY + 32);
+
+  curY += headerHeight;
+  drawDashedLine(ctx, curY, padX, width - padX);
+  curY += 8;
+
+  // 2. METADATA SECTION (Compact key-value text)
   const now = new Date();
   const dateStr = now.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: 'short', year: 'numeric' });
   const timeStr = now.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' });
 
-  // Row 1: Slip No & Date
+  // Slip & Date
   ctx.textAlign = 'left';
-  ctx.font = '700 10px "SF Mono", "Roboto Mono", Consolas, monospace';
-  ctx.fillStyle = '#6B7280';
-  ctx.fillText(`${lang === 'bn' ? 'রসিদ নং' : 'SLIP NO'}: `, padX + 16, metaBoxY + 26);
-  ctx.fillStyle = '#111827';
-  ctx.font = 'bold 11px "SF Mono", "Roboto Mono", Consolas, monospace';
-  ctx.fillText(slipNo, padX + 80, metaBoxY + 26);
+  ctx.font = monoFont(10, 'bold');
+  ctx.fillStyle = '#9CA3AF';
+  ctx.fillText(`${lang === 'bn' ? 'রসিদ' : 'SLIP'}: `, padX, curY + 12);
+  ctx.fillStyle = '#F3F4F6';
+  ctx.fillText(slipNo, padX + 38, curY + 12);
 
   ctx.textAlign = 'right';
-  ctx.font = '600 10.5px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillStyle = '#4B5563';
-  ctx.fillText(`${dateStr} • ${timeStr}`, width - padX - 16, metaBoxY + 26);
+  ctx.fillStyle = '#9CA3AF';
+  ctx.font = monoFont(9.5, 'normal');
+  ctx.fillText(`${dateStr} ${timeStr}`, width - padX, curY + 12);
 
-  // Dividing line inside meta
-  ctx.strokeStyle = '#E5E7EB';
-  ctx.beginPath();
-  ctx.moveTo(padX + 16, metaBoxY + 38);
-  ctx.lineTo(width - padX - 16, metaBoxY + 38);
-  ctx.stroke();
-
-  // Row 2: Customer Name & Phone
+  // Client & Phone
   ctx.textAlign = 'left';
-  ctx.font = '700 10px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillStyle = '#6B7280';
-  ctx.fillText(`${lang === 'bn' ? 'গ্রাহক' : 'CLIENT'}:`, padX + 16, metaBoxY + 58);
-  ctx.fillStyle = '#111827';
-  ctx.font = 'bold 13px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillText(customerName, padX + 66, metaBoxY + 58);
+  ctx.fillStyle = '#9CA3AF';
+  ctx.font = monoFont(10, 'bold');
+  ctx.fillText(`${lang === 'bn' ? 'গ্রাহক' : 'CLIENT'}: `, padX, curY + 28);
+  ctx.fillStyle = '#F3F4F6';
+  ctx.font = sansFont(11.5, 'bold');
+  ctx.fillText(customerName, padX + 54, curY + 28);
 
   ctx.textAlign = 'left';
-  ctx.font = '700 10px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillStyle = '#6B7280';
-  ctx.fillText(`${lang === 'bn' ? 'মোবাইল' : 'PHONE'}:`, padX + 16, metaBoxY + 76);
-  ctx.fillStyle = '#374151';
-  ctx.font = '600 11px "SF Mono", "Roboto Mono", Consolas, monospace';
-  ctx.fillText(customerPhone, padX + 66, metaBoxY + 76);
+  ctx.fillStyle = '#9CA3AF';
+  ctx.font = monoFont(10, 'bold');
+  ctx.fillText(`${lang === 'bn' ? 'ফোন' : 'PHONE'}: `, padX, curY + 44);
+  ctx.fillStyle = '#D1D5DB';
+  ctx.font = monoFont(10.5, 'normal');
+  ctx.fillText(customerPhone, padX + 54, curY + 44);
 
-  curY += metaBoxHeight + metaSpacing;
+  curY += metaHeight;
+  drawDashedLine(ctx, curY, padX, width - padX);
+  curY += 6;
 
-  // 3. TABLE HEADER
-  ctx.fillStyle = '#111827';
-  ctx.beginPath();
-  drawRoundRect(ctx, padX, curY, contentWidth, tableHeaderHeight, 6);
-  ctx.fill();
+  // 3. TABLE HEADER (Compact monospace columns)
+  ctx.font = monoFont(9.5, 'bold');
+  ctx.fillStyle = '#9CA3AF';
 
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 10px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(lang === 'bn' ? 'তারিখ ও বিবরণ' : 'DATE & DETAILS', padX + 12, curY + 20);
+  ctx.fillText(lang === 'bn' ? 'তারিখ / বিবরণ' : 'DATE / ITEM', padX, curY + 11);
 
   ctx.textAlign = 'center';
-  ctx.fillText(lang === 'bn' ? 'ধরন' : 'TYPE', padX + contentWidth * 0.62, curY + 20);
+  ctx.fillText(lang === 'bn' ? 'ধরন' : 'TYPE', padX + contentWidth * 0.62, curY + 11);
 
   ctx.textAlign = 'right';
-  ctx.fillText(lang === 'bn' ? 'পরিমাণ' : 'AMOUNT', width - padX - 12, curY + 20);
+  ctx.fillText(lang === 'bn' ? 'টাকা' : 'AMOUNT', width - padX, curY + 11);
 
-  curY += tableHeaderHeight + tableMargin;
+  curY += tableHeaderHeight;
+  drawDashedLine(ctx, curY, padX, width - padX);
+  curY += 6;
 
-  // 4. TRANSACTION ROWS
+  // 4. TRANSACTION ROWS (Compact 2-line max design)
   if (safeTransactions.length === 0) {
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#9CA3AF';
-    ctx.font = '600 12px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-    ctx.fillText(lang === 'bn' ? 'কোন লেনদেন পাওয়া যায়নি' : 'No transactions recorded', width / 2, curY + 28);
-    curY += 52;
+    ctx.fillStyle = '#6B7280';
+    ctx.font = monoFont(10, 'normal');
+    ctx.fillText(lang === 'bn' ? 'কোন লেনদেন নেই' : 'No transactions recorded', width / 2, curY + 18);
+    curY += 34;
   } else {
     safeTransactions.forEach((tx) => {
       const txDate = parseTxDate(tx.date);
-      const rowDateStr = txDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: 'short', year: '2-digit' });
+      const rowDateStr = txDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: 'short' });
       const rowTimeStr = txDate.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' });
       const isTxDue = tx.type === 'due';
       const typeLabel = isTxDue ? (lang === 'bn' ? 'বকেয়া' : 'DUE') : (lang === 'bn' ? 'জমা' : 'PAID');
       const sign = isTxDue ? '+' : '-';
-      const amountStr = `${sign} ৳${safeFormatNumber(tx.amount, lang)}`;
+      const amountStr = `${sign}৳${safeFormatNumber(tx.amount, lang)}`;
       const hasDesc = !!tx.description?.trim();
-      const rowH = hasDesc ? 56 : 42;
+      const rowH = hasDesc ? 40 : 26;
 
-      // Date / Time
+      // Line 1: Date, Type, Amount
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#111827';
-      ctx.font = '600 11px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-      ctx.fillText(`${rowDateStr} ${rowTimeStr}`, padX + 12, curY + 18);
+      ctx.fillStyle = '#E5E7EB';
+      ctx.font = monoFont(10, 'normal');
+      ctx.fillText(`${rowDateStr} ${rowTimeStr}`, padX, curY + 13);
 
-      // Description (if present)
-      if (hasDesc) {
-        ctx.fillStyle = '#6B7280';
-        ctx.font = 'italic 10px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-        const descText = tx.description!.trim();
-        const truncatedDesc = descText.length > 36 ? descText.slice(0, 34) + '...' : descText;
-        ctx.fillText(truncatedDesc, padX + 12, curY + 34);
-      }
-
-      // Type Badge Pill
-      const typeBadgeWidth = 48;
-      const typeBadgeHeight = 18;
-      const typeBadgeX = padX + contentWidth * 0.62 - typeBadgeWidth / 2;
-      const typeBadgeY = curY + 6;
-
-      ctx.beginPath();
-      drawRoundRect(ctx, typeBadgeX, typeBadgeY, typeBadgeWidth, typeBadgeHeight, 4);
-      if (isTxDue) {
-        ctx.fillStyle = '#FFF1F2';
-        ctx.fill();
-        ctx.strokeStyle = '#FECDD3';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.fillStyle = '#e0385e';
-      } else {
-        ctx.fillStyle = '#ECFDF5';
-        ctx.fill();
-        ctx.strokeStyle = '#A7F3D0';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.fillStyle = '#009966';
-      }
-      ctx.font = 'bold 9.5px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(typeLabel, typeBadgeX + typeBadgeWidth / 2, typeBadgeY + 12.5);
-
-      // Amount
-      ctx.textAlign = 'right';
-      ctx.font = 'bold 12.5px "SF Mono", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
       ctx.fillStyle = isTxDue ? '#e0385e' : '#009966';
-      ctx.fillText(amountStr, width - padX - 12, curY + 18);
+      ctx.font = monoFont(9.5, 'bold');
+      ctx.fillText(`[${typeLabel}]`, padX + contentWidth * 0.62, curY + 13);
 
-      // Row separator
-      ctx.save();
-      ctx.strokeStyle = '#F3F4F6';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(padX + 8, curY + rowH);
-      ctx.lineTo(width - padX - 8, curY + rowH);
-      ctx.stroke();
-      ctx.restore();
+      ctx.textAlign = 'right';
+      ctx.fillStyle = isTxDue ? '#e0385e' : '#009966';
+      ctx.font = monoFont(11, 'bold');
+      ctx.fillText(amountStr, width - padX, curY + 13);
+
+      // Line 2: Note / Description (compact indented)
+      if (hasDesc) {
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#9CA3AF';
+        ctx.font = sansFont(9.5, 'italic');
+        const descText = tx.description!.trim();
+        const truncatedDesc = descText.length > 44 ? descText.slice(0, 42) + '...' : descText;
+        ctx.fillText(`↳ ${truncatedDesc}`, padX + 8, curY + 28);
+      }
 
       curY += rowH;
     });
   }
 
   curY += tableSpacing;
+  drawDashedLine(ctx, curY, padX, width - padX);
+  curY += 8;
 
-  // 5. TOTALS SECTION
-  ctx.fillStyle = '#F9FAFB';
-  ctx.beginPath();
-  drawRoundRect(ctx, padX, curY, contentWidth, totalsBoxHeight, 12);
-  ctx.fill();
-  ctx.strokeStyle = '#E5E7EB';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  // Total Dues
+  // 5. TOTALS SECTION (Clean inline lines without chunky boxes)
+  ctx.font = monoFont(10, 'normal');
+  ctx.fillStyle = '#9CA3AF';
   ctx.textAlign = 'left';
-  ctx.font = '600 11px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillStyle = '#4B5563';
-  ctx.fillText(lang === 'bn' ? 'মোট বকেয়া যুক্ত' : 'TOTAL DUES BILLED', padX + 16, curY + 26);
+  ctx.fillText(lang === 'bn' ? 'মোট বকেয়া যুক্ত:' : 'Total Dues Added:', padX, curY + 12);
   ctx.textAlign = 'right';
-  ctx.font = 'bold 12px "SF Mono", "Inter", sans-serif';
   ctx.fillStyle = '#e0385e';
-  ctx.fillText(`+ ৳${safeFormatNumber(totalDuesCalculated, lang)}`, width - padX - 16, curY + 26);
+  ctx.font = monoFont(11, 'bold');
+  ctx.fillText(`+৳${safeFormatNumber(totalDuesCalculated, lang)}`, width - padX, curY + 12);
 
-  // Total Paid
+  ctx.font = monoFont(10, 'normal');
+  ctx.fillStyle = '#9CA3AF';
   ctx.textAlign = 'left';
-  ctx.font = '600 11px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillStyle = '#4B5563';
-  ctx.fillText(lang === 'bn' ? 'মোট জমা / পরিশোধ' : 'TOTAL PAID / RECEIVED', padX + 16, curY + 50);
+  ctx.fillText(lang === 'bn' ? 'মোট জমা / পরিশোধ:' : 'Total Paid / Received:', padX, curY + 28);
   ctx.textAlign = 'right';
-  ctx.font = 'bold 12px "SF Mono", "Inter", sans-serif';
   ctx.fillStyle = '#009966';
-  ctx.fillText(`- ৳${safeFormatNumber(totalPaymentsCalculated, lang)}`, width - padX - 16, curY + 50);
+  ctx.font = monoFont(11, 'bold');
+  ctx.fillText(`-৳${safeFormatNumber(totalPaymentsCalculated, lang)}`, width - padX, curY + 28);
 
-  curY += totalsBoxHeight + totalsSpacing;
+  curY += totalsHeight;
+  drawDoubleLine(ctx, curY, padX, width - padX);
+  curY += 10;
 
-  // 6. NET BALANCE HIGHLIGHT CARD
-  ctx.beginPath();
-  drawRoundRect(ctx, padX, curY, contentWidth, netBoxHeight, 14);
-
-  let netBg = '#FFF1F2';
-  let netBorder = '#FECDD3';
-  let netColor = '#e0385e';
-  let statusText = lang === 'bn' ? '[ অপরিশোধিত বকেয়া ]' : '[ OUTSTANDING BALANCE ]';
+  // 6. BALANCE SECTION (Authentic receipt highlight, no bloated boxes)
+  let statusColor = '#e0385e';
+  let statusText = lang === 'bn' ? 'বকেয়া' : 'OUTSTANDING DUE';
 
   if (isSettled) {
-    netBg = '#F0FDF4';
-    netBorder = '#BBF7D0';
-    netColor = '#009966';
-    statusText = lang === 'bn' ? '[ সম্পূর্ণ পরিশোধিত ]' : '[ FULLY SETTLED ]';
+    statusColor = '#009966';
+    statusText = lang === 'bn' ? 'পরিশোধিত' : 'FULLY SETTLED';
   } else if (!isDue) {
-    netBg = '#ECFEFF';
-    netBorder = '#A5F3FC';
-    netColor = '#009bb3';
-    statusText = lang === 'bn' ? '[ অতিরিক্ত অগ্রিম জমা ]' : '[ ADVANCE CREDIT SURPLUS ]';
+    statusColor = '#00d3f2';
+    statusText = lang === 'bn' ? 'অগ্রিম জমা' : 'CREDIT SURPLUS';
   }
-
-  ctx.fillStyle = netBg;
-  ctx.fill();
-  ctx.strokeStyle = netBorder;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 10px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillStyle = netColor;
-  ctx.fillText(lang === 'bn' ? 'বর্তমান মোট স্থিতি' : 'CURRENT NET BALANCE', width / 2, curY + 22);
 
   const balanceDisplay = isSettled
     ? '৳ 0'
     : `${outstandingDue < 0 ? '-' : ''}৳ ${safeFormatNumber(Math.abs(outstandingDue), lang)}`;
 
-  ctx.font = 'bold 24px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillStyle = netColor;
-  ctx.fillText(balanceDisplay, width / 2, curY + 52);
+  ctx.textAlign = 'left';
+  ctx.font = monoFont(10, 'bold');
+  ctx.fillStyle = '#9CA3AF';
+  ctx.fillText(lang === 'bn' ? 'বর্তমান মোট স্থিতি:' : 'CURRENT BALANCE:', padX, curY + 14);
 
-  ctx.font = '700 9.5px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillText(statusText, width / 2, curY + 70);
+  ctx.textAlign = 'right';
+  ctx.font = monoFont(9.5, 'bold');
+  ctx.fillStyle = statusColor;
+  ctx.fillText(`[ ${statusText} ]`, width - padX, curY + 14);
 
-  curY += netBoxHeight + netSpacing;
-
-  // 7. BARCODE & DIGITAL STAMP
-  ctx.save();
+  // Large crisp amount
   ctx.textAlign = 'center';
+  ctx.font = monoFont(22, 'bold');
+  ctx.fillStyle = statusColor;
+  ctx.fillText(balanceDisplay, width / 2, curY + 38);
 
-  // Realistic barcode bars
+  curY += balanceHeight;
+  drawDashedLine(ctx, curY, padX, width - padX);
+  curY += 8;
+
+  // 7. BARCODE STRIP (Classic minimalist POS barcode)
+  ctx.save();
   const barcodeY = curY;
-  const barcodeH = 26;
+  const barcodeH = 20;
   const barPattern = [2, 1, 3, 1, 4, 2, 1, 3, 2, 1, 4, 1, 2, 3, 1, 4, 2, 1, 3, 2, 1, 3, 2, 1, 4, 2, 1, 3, 1, 2, 4];
-  const barTotalW = barPattern.reduce((sum, w) => sum + w + 1.5, 0);
+  const barTotalW = barPattern.reduce((sum, w) => sum + w + 1.2, 0);
   let barCurX = (width - barTotalW) / 2;
 
-  ctx.fillStyle = '#111827';
+  ctx.fillStyle = '#E5E7EB';
   barPattern.forEach((w) => {
     ctx.fillRect(barCurX, barcodeY, w, barcodeH);
-    barCurX += w + 1.5;
+    barCurX += w + 1.2;
   });
 
-  ctx.font = '700 9px "SF Mono", "Roboto Mono", Consolas, monospace';
-  ctx.fillStyle = '#4B5563';
-  ctx.fillText(`* ${slipNo} *`, width / 2, barcodeY + barcodeH + 14);
-
-  curY += barcodeSectionHeight;
-  ctx.restore();
-
-  // Perforated bottom tear line
-  ctx.save();
-  ctx.strokeStyle = '#D1D5DB';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 4]);
-  ctx.beginPath();
-  ctx.moveTo(padX, curY);
-  ctx.lineTo(width - padX, curY);
-  ctx.stroke();
-  ctx.restore();
-
-  curY += tear2Spacing;
-
-  // 8. FOOTER NOTES
+  ctx.font = monoFont(8.5, 'bold');
+  ctx.fillStyle = '#6B7280';
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#374151';
-  ctx.font = 'bold 10px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
+  ctx.fillText(`* ${slipNo} *`, width / 2, barcodeY + barcodeH + 12);
+
+  curY += barcodeHeight;
+  ctx.restore();
+
+  // 8. MINIMAL FOOTER (Professional, zero fluffy AI words)
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#9CA3AF';
+  ctx.font = monoFont(9.5, 'bold');
   ctx.fillText(
-    lang === 'bn' ? '*** আমাদের সাথে লেনদেন করার জন্য ধন্যবাদ ***' : '*** THANK YOU FOR YOUR BUSINESS ***',
+    lang === 'bn' ? '*** ধন্যবাদ ***' : '*** THANK YOU ***',
     width / 2,
     curY + 12
   );
 
-  ctx.fillStyle = '#6B7280';
-  ctx.font = '600 8.5px "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SolaimanLipi", sans-serif';
-  ctx.fillText(
-    'GENERATED VIA CHALLAN TRACK • DIGITAL POS RECORD • VALID WITHOUT SIGNATURE',
-    width / 2,
-    curY + 28
-  );
-
-  // Return PNG Data URL and Blob (synchronous & reliable)
+  // Synchronous, rock-solid output
   try {
     const dataUrl = canvas.toDataURL('image/png');
     const blob = dataUrlToBlob(dataUrl);
     return { dataUrl, blob, fileName };
   } catch (err) {
-    // Fallback if toDataURL throws
     return new Promise<ReceiptImageResult>((resolve, reject) => {
       if (typeof canvas.toBlob === 'function') {
         canvas.toBlob((b) => {
@@ -540,7 +460,7 @@ export async function generateReceiptPng(
 }
 
 /**
- * Triggers an instant download of the generated receipt PNG.
+ * Triggers download of the generated receipt PNG on user action.
  */
 export function downloadReceiptImage(dataUrl: string, fileName: string) {
   try {

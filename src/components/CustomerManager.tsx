@@ -664,9 +664,7 @@ if (sortBy === 'custom') {
       } catch {
         // history navigation fallback
       }
-      // Automatically trigger PNG download
-      downloadReceiptImage(result.dataUrl, result.fileName);
-      toast.success(lang === 'bn' ? 'রসিদ ইমেজ তৈরি ও ডাউনলোড হয়েছে' : 'Receipt image generated & downloaded');
+      toast.success(lang === 'bn' ? 'রসিদ প্রিভিউ প্রস্তুত' : 'Receipt preview ready');
     } catch (err: any) {
       console.error('Receipt generation error:', err);
       const errMsg = err?.message || String(err);
@@ -2225,8 +2223,8 @@ if (sortBy === 'custom') {
         </div>
 
         {/* Image Preview Container */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-zinc-100/70 dark:bg-zinc-950/70 flex justify-center items-start hide-scrollbar">
-          <div className="max-w-[340px] w-full rounded-2xl shadow-xl overflow-hidden ring-1 ring-black/10 dark:ring-white/10 bg-white">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-zinc-950/90 dark:bg-black flex justify-center items-start hide-scrollbar">
+          <div className="max-w-[320px] w-full filter drop-shadow-[0_20px_25px_rgba(0,0,0,0.6)]">
             <img 
               src={receiptResult.dataUrl} 
               alt="Customer Receipt" 
@@ -2243,7 +2241,7 @@ if (sortBy === 'custom') {
               onClick={() => {
                 triggerHaptic('single');
                 downloadReceiptImage(receiptResult.dataUrl, receiptResult.fileName);
-                toast.success(lang === 'bn' ? 'পুনরায় ডাউনলোড হয়েছে' : 'Downloaded again');
+                toast.success(lang === 'bn' ? 'রসিদ ইমেজ ডাউনলোড সম্পন্ন হয়েছে' : 'Receipt downloaded successfully');
               }}
               className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm cursor-pointer"
             >
