@@ -77,5 +77,9 @@ export interface SavingGoal {
   createdAt: any;
   updatedAt: any;
   type: 'savings' | 'deposit';
+  principalAmount?: number;
+  interestRate?: number;
+  interestAmount?: number;
+  tenure?: number;
   contributions: GoalContribution[];
 }

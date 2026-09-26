@@ -204,6 +204,7 @@ export default function App() {
     customers,
     customerTransactions,
     dailyTransactions,
+    todayTransactions,
     reminders,
     settings,
     loading: ledgerLoading,
@@ -241,8 +242,6 @@ export default function App() {
   } = useLedger(user?.uid, selectedDailyDate, selectedCustomerIdForDetail);
 
   const dateInputRef = React.useRef<HTMLInputElement>(null);
-
-  const todayTransactions = dailyTransactions;
 
 // End-of-Day Cash Summary Notification
   useEffect(() => {
@@ -636,7 +635,7 @@ export default function App() {
  {currentTab === 'home' && (
  <Dashboard 
   customers={customers}
-  transactions={dailyTransactions}
+  transactions={todayTransactions}
   transactionsCount={settings?.transactionsCount || 0}
   monthlySummaries={monthlySummaries}
   onOpenQuickEntry={openQuickEntry}

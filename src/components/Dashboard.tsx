@@ -80,7 +80,7 @@ export default function Dashboard({
 
     const todayTxs = transactions.filter(tx => {
       const txDate = parseFirestoreDate(tx.date);
-      return txDate >= midnight;
+      return txDate.toDateString() === new Date().toDateString() || txDate >= midnight;
     });
 
     const duesToday = todayTxs

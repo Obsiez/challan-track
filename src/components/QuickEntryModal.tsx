@@ -414,7 +414,7 @@ export default function QuickEntryModal({
       className={`p-3 text-left rounded-xl border transition-all text-sm truncate flex items-center justify-between cursor-pointer ${
       selectedCustomerId === c.id
       ? type === 'due'
-      ? 'bg-rose-600 text-white border-rose-600 font-bold dark:bg-rose-500 dark:text-zinc-950 dark:border-rose-500'
+      ? 'bg-[#e0385e] text-white border-[#e0385e] font-bold dark:bg-[#e0385e] dark:text-white dark:border-[#e0385e]'
       : 'bg-emerald-600 text-white border-emerald-600 font-bold dark:bg-emerald-500 dark:text-zinc-950 dark:border-emerald-500'
       : 'bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300'
       }`}
@@ -457,7 +457,11 @@ export default function QuickEntryModal({
  placeholder="e.g. Wahid Zaman"
  value={customerNameInput}
  onChange={(e) => setCustomerNameInput(e.target.value)}
- className="w-full px-4 py-3 bg-[#009966]/5 dark:bg-[#009966]/5 border-2 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966] rounded-xl text-zinc-850 dark:text-white focus:outline-none transition-all"
+ className={`w-full px-4 py-3 border-2 rounded-xl text-zinc-850 dark:text-white focus:outline-none transition-all ${
+   type === 'due'
+     ? 'bg-[#e0385e]/5 dark:bg-[#e0385e]/5 border-[#e0385e]/30 focus:border-[#e0385e] dark:border-[#e0385e]/20 dark:focus:border-[#e0385e]'
+     : 'bg-[#009966]/5 dark:bg-[#009966]/5 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966]'
+ }`}
  />
  </div>
  <div className="space-y-1">
@@ -468,7 +472,11 @@ export default function QuickEntryModal({
    placeholder="e.g. 01712345678"
    value={customerPhoneInput}
    onChange={(e) => setCustomerPhoneInput(e.target.value)}
-   className="flex-1 px-4 py-3 bg-[#009966]/5 dark:bg-[#009966]/5 border-2 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966] rounded-xl text-zinc-850 dark:text-white focus:outline-none transition-all"
+   className={`flex-1 px-4 py-3 border-2 rounded-xl text-zinc-850 dark:text-white focus:outline-none transition-all ${
+     type === 'due'
+       ? 'bg-[#e0385e]/5 dark:bg-[#e0385e]/5 border-[#e0385e]/30 focus:border-[#e0385e] dark:border-[#e0385e]/20 dark:focus:border-[#e0385e]'
+       : 'bg-[#009966]/5 dark:bg-[#009966]/5 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966]'
+   }`}
    />
    <button
      type="button"

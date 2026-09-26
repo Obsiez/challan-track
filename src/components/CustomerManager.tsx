@@ -225,24 +225,6 @@ const parseFirestoreDate = (dateVal: any): Date => {
   return isNaN(parsed.getTime()) ? new Date() : parsed;
 };
 
-const UserSilhouettePlaceholder = ({ lang, name }: { lang: 'en' | 'bn'; name: string }) => (
-  <div className="w-full border-2 border-dashed border-emerald-400 dark:border-emerald-500 bg-emerald-50/10 dark:bg-emerald-950/10 rounded-2xl p-5 flex items-center justify-between animate-pulse">
-    <div className="flex items-center gap-3">
-      {/* User Silhouette Circle */}
-      <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-500 dark:text-emerald-400">
-        <Users className="w-5 h-5 stroke-[2]" />
-      </div>
-      <div className="space-y-1">
-        <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400 truncate max-w-[150px]">
-          {name}
-        </div>
-        <div className="w-20 h-3 bg-emerald-100/40 dark:bg-emerald-800/20 rounded" />
-      </div>
-    </div>
-    <div className="w-12 h-6 bg-emerald-100/40 dark:bg-emerald-800/20 rounded-lg" />
-  </div>
-);
-
 interface CustomerManagerProps {
  customers: Customer[];
  transactions: Transaction[];
@@ -356,116 +338,7 @@ export default function CustomerManager({
     localStorage.setItem('customers_custom_order', JSON.stringify(newOrder));
   };
 
-  const [draggedCustomerId, setDraggedCustomerId] = useState<string | null>(null);
-  const [draggedOverCustomerId, setDraggedOverCustomerId] = useState<string | null>(null);
   const [activeSwipingId, setActiveSwipingId] = useState<string | null>(null);
-  const lastSwappedTargetIdRef = useRef<string | null>(null);
-
-  // Smooth requestAnimationFrame Auto-scroll
-  React.useEffect(() => {
-    if (!draggedCustomerId) return;
-
-    let animationFrameId: number | null = null;
-    let scrollSpeed = 0;
-
-    const scrollLoop = () => {
-      if (scrollSpeed !== 0) {
-        window.scrollBy(0, scrollSpeed);
-      }
-      animationFrameId = requestAnimationFrame(scrollLoop);
-    };
-
-    const handleWindowDragOver = (e: DragEvent) => {
-      const threshold = 150;
-      const maxSpeed = 15;
-      const clientY = e.clientY;
-
-      if (clientY < threshold) {
-        const ratio = (threshold - clientY) / threshold;
-        scrollSpeed = -Math.round(maxSpeed * ratio);
-      } else if (clientY > window.innerHeight - threshold) {
-        const ratio = (clientY - (window.innerHeight - threshold)) / threshold;
-        scrollSpeed = Math.round(maxSpeed * ratio);
-      } else {
-        scrollSpeed = 0;
-      }
-    };
-
-    const handleWindowDragEnd = () => {
-      scrollSpeed = 0;
-      if (animationFrameId !== null) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
-      }
-    };
-
-    animationFrameId = requestAnimationFrame(scrollLoop);
-
-    window.addEventListener('dragover', handleWindowDragOver);
-    window.addEventListener('dragend', handleWindowDragEnd);
-    window.addEventListener('drop', handleWindowDragEnd);
-
-    return () => {
-      window.removeEventListener('dragover', handleWindowDragOver);
-      window.removeEventListener('dragend', handleWindowDragEnd);
-      window.removeEventListener('drop', handleWindowDragEnd);
-      if (animationFrameId !== null) {
-        cancelAnimationFrame(animationFrameId);
-      }
-    };
-  }, [draggedCustomerId]);
-
-  const handleDragStart = (e: React.DragEvent, id: string) => {
-    setDraggedCustomerId(id);
-    e.dataTransfer.effectAllowed = 'move';
-    triggerHaptic('single');
-  };
-
-  const handleDragOver = (e: React.DragEvent, targetId: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (!draggedCustomerId || draggedCustomerId === targetId) return;
-    if (lastSwappedTargetIdRef.current === targetId) return; // Skip if already swapped to prevent loop
-
-    const sourceCust = customers.find(c => c.id === draggedCustomerId);
-    const targetCust = customers.find(c => c.id === targetId);
-    if (!sourceCust || !targetCust) return;
-
-    const sourcePinned = pinnedCustomerNames.includes(sourceCust.name);
-    const targetPinned = pinnedCustomerNames.includes(targetCust.name);
-
-    if (sourcePinned !== targetPinned) return; // Prevent dragging across pinned boundary
-
-    const currentOrder = filteredCustomers.map(c => c.id);
-    const sourceIndex = currentOrder.indexOf(draggedCustomerId);
-    const targetIndex = currentOrder.indexOf(targetId);
-
-    if (sourceIndex !== -1 && targetIndex !== -1 && sourceIndex !== targetIndex) {
-      const updatedOrder = [...currentOrder];
-      updatedOrder.splice(sourceIndex, 1);
-      updatedOrder.splice(targetIndex, 0, draggedCustomerId);
-      
-      lastSwappedTargetIdRef.current = targetId; // Lock target to prevent back-and-forth vibration
-      saveCustomOrder(updatedOrder);
-      triggerHaptic('tick'); // subtle swap haptic
-    }
-  };
-
-  const handleDragLeave = () => {
-    setDraggedOverCustomerId(null);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedCustomerId(null);
-    lastSwappedTargetIdRef.current = null;
-  };
-
-  const handleDrop = (e: React.DragEvent, targetId: string) => {
-    e.preventDefault();
-    setDraggedCustomerId(null);
-    triggerHaptic('tick');
-    toast.success(lang === 'bn' ? 'ক্রম পরিবর্তন করা হয়েছে' : 'Reordered successfully');
-  };
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [pinnedCustomerNames, setPinnedCustomerNames] = useState<string[]>(() => {
     try {
@@ -1508,7 +1381,7 @@ if (sortBy === 'custom') {
             onClick={() => setIsSortOpen(false)} 
           />
           <div className="absolute right-0 mt-1.5 w-52 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl z-50 py-1.5 animate-in fade-in slide-in-from-top-1 duration-100">
-            {(['recent', 'high_balance', 'low_balance', 'custom'] as const).map((option) => {
+            {(['recent', 'high_balance', 'low_balance'] as const).map((option) => {
                const label = option === 'recent'
                   ? (lang === 'bn' ? 'সাম্প্রতিক (Recent)' : 'Recent')
                   : option === 'high_balance'
@@ -1540,35 +1413,7 @@ if (sortBy === 'custom') {
 
   {/* Customer list database */}
  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
- {filteredCustomers.map(c => {
-    const isDragged = draggedCustomerId === c.id;
-    const isOver = draggedOverCustomerId === c.id;
-    
-    const draggedIndex = filteredCustomers.findIndex(item => item.id === draggedCustomerId);
-    const targetIndex = filteredCustomers.findIndex(item => item.id === c.id);
-    const insertDirection = draggedIndex < targetIndex ? 'below' : 'above';
-    const draggedCustomerName = customers.find(item => item.id === draggedCustomerId)?.name || '';
-
-    return (
-      <div 
-        key={c.id} 
-        className="w-full flex flex-col"
-        onDragOver={(e) => handleDragOver(e, c.id)}
-        onDragLeave={handleDragLeave}
-        onDrop={(e) => handleDrop(e, c.id)}
-      >
-        {/* Insertion Indicator Above */}
-        {isOver && insertDirection === 'above' && (
-          <motion.div 
-            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-            animate={{ opacity: 1, height: 'auto', marginBottom: 16 }}
-            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-            className="w-full"
-          >
-            <UserSilhouettePlaceholder lang={lang} name={draggedCustomerName} />
-          </motion.div>
-        )}
-
+ {filteredCustomers.map(c => (
  		<SwipeableCustomerItem
  			key={c.id}
  			customer={c}
@@ -1598,36 +1443,21 @@ if (sortBy === 'custom') {
  				onClick={() => {
  					setSelectedCustomerId(selectedCustomerId === c.id ? null : c.id);
  				}}
- 				draggable="true"
- 				onDragStart={(e) => handleDragStart(e, c.id)}
- 				onDragOver={(e) => handleDragOver(e, c.id)}
- 				onDragLeave={handleDragLeave}
- 				onDragEnd={handleDragEnd}
- 				onDrop={(e) => handleDrop(e, c.id)}
  				className={`bg-white dark:bg-zinc-900 border p-5 rounded-2xl shadow-md hover:shadow-md transition-all cursor-pointer flex items-center justify-between group ${
  					selectedCustomerId === c.id 
  						? 'border-emerald-500 ring-2 ring-emerald-500/20 dark:ring-emerald-400/20' 
  						: 'border-zinc-200 dark:border-zinc-800'
- 				} ${
- 					draggedCustomerId === c.id 
- 						? 'opacity-30 border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-100/10' 
- 						: ''
- 				} ${
-          draggedCustomerId !== null && draggedCustomerId !== c.id 
-            ? 'pointer-events-none' 
-            : ''
-        }`}
+ 				}`}
  			>
  				<div className="min-w-0 pr-2">
  					<div 
  						onClick={(e) => {
  							e.stopPropagation();
  							triggerHaptic('single');
- 							// Replace (not push) so clicking name updates query param, back gesture doesn't create endless loop
- 							window.history.replaceState({ tab: 'customers', customerId: c.id, modal: null, quickEntry: false }, '', `?tab=customers&c=${c.id}`);
- 							setSelectedCustomerId(c.id);
+ 							window.history.pushState({ modal: 'pinActionCustomer' }, '');
+ 							setPinActionCustomer(c);
  						}}
- 						className="text-lg font-bold text-zinc-900 dark:text-white truncate flex items-center gap-1.5"
+ 						className="text-lg font-bold text-zinc-900 dark:text-white truncate flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity"
  					>
  						<span>{c.name}</span>
  						{pinnedCustomerNames.includes(c.name) && (
@@ -1668,21 +1498,7 @@ if (sortBy === 'custom') {
  				</div>
  			</div>
  		</SwipeableCustomerItem>
-
-        {/* Insertion Indicator Below */}
-        {isOver && insertDirection === 'below' && (
-          <motion.div 
-            initial={{ opacity: 0, height: 0, marginTop: 0 }}
-            animate={{ opacity: 1, height: 'auto', marginTop: 16 }}
-            exit={{ opacity: 0, height: 0, marginTop: 0 }}
-            className="w-full"
-          >
-            <UserSilhouettePlaceholder lang={lang} name={draggedCustomerName} />
-          </motion.div>
-        )}
-      </div>
-    );
-  })}
+  ))}
 
  {filteredCustomers.length === 0 && (
  <div className="col-span-1 sm:col-span-2 p-10 text-center bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 text-zinc-400">

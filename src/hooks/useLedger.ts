@@ -450,22 +450,14 @@ const lastSubmitRef = useRef<{
     }
   }, [userId, transactions, activeCustomerId, customerTxLimit, isOfflineFallback]);
 
-// 3b. Sync Daily Archive Transactions (only for past dates when online)
+// 3b. Sync Daily Archive Transactions (queries Firestore for selected date range)
   useEffect(() => {
     if (!userId || userId === 'local-guest-session' || isOfflineFallback || !selectedDailyDate) {
       setArchiveTransactions([]);
       return;
     }
 
-    const filterDateStr = selectedDailyDate.toDateString();
-    const isToday = filterDateStr === new Date().toDateString();
-
-    if (isToday) {
-      setArchiveTransactions([]);
-      return;
-    }
-
-    // Archive Date: Query firestore directly for the selected date range
+    // Query firestore directly for the selected date range
     const startOfDay = new Date(selectedDailyDate);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(selectedDailyDate);
@@ -503,23 +495,53 @@ const lastSubmitRef = useRef<{
     if (!selectedDailyDate) return [];
     
     const filterDateStr = selectedDailyDate.toDateString();
-    const isToday = filterDateStr === new Date().toDateString();
+    const map = new Map<string, Transaction>();
 
-    if (isToday || isOfflineFallback || userId === 'local-guest-session') {
-      return transactions
-        .filter(tx => {
-          const d = tx.date instanceof Date ? tx.date : new Date(tx.date);
-          return d.toDateString() === filterDateStr;
-        })
-        .sort((a, b) => {
-          const dateA = a.date instanceof Date ? a.date : new Date(a.date);
-          const dateB = b.date instanceof Date ? b.date : new Date(b.date);
-          return dateB.getTime() - dateA.getTime();
-        });
-    }
+    archiveTransactions.forEach(tx => {
+      const d = parseTxDate(tx.date);
+      if (d.toDateString() === filterDateStr) {
+        map.set(tx.id, tx);
+      }
+    });
 
-    return archiveTransactions;
-  }, [transactions, selectedDailyDate, isOfflineFallback, userId, archiveTransactions]);
+    transactions.forEach(tx => {
+      const d = parseTxDate(tx.date);
+      if (d.toDateString() === filterDateStr) {
+        map.set(tx.id, tx);
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const dateA = parseTxDate(a.date).getTime();
+      const dateB = parseTxDate(b.date).getTime();
+      return dateB - dateA;
+    });
+  }, [transactions, selectedDailyDate, archiveTransactions]);
+
+  const todayTransactions = useMemo(() => {
+    const todayStr = new Date().toDateString();
+    const map = new Map<string, Transaction>();
+
+    archiveTransactions.forEach(tx => {
+      const d = parseTxDate(tx.date);
+      if (d.toDateString() === todayStr) {
+        map.set(tx.id, tx);
+      }
+    });
+
+    transactions.forEach(tx => {
+      const d = parseTxDate(tx.date);
+      if (d.toDateString() === todayStr) {
+        map.set(tx.id, tx);
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const dateA = parseTxDate(a.date).getTime();
+      const dateB = parseTxDate(b.date).getTime();
+      return dateB - dateA;
+    });
+  }, [transactions, archiveTransactions]);
 
   // 3c. Sync Monthly Summaries (retention last 6 months)
   useEffect(() => {
@@ -546,6 +568,48 @@ const lastSubmitRef = useRef<{
 
     return () => unsubscribe();
   }, [userId, isOfflineFallback]);
+
+  const effectiveMonthlySummaries = useMemo(() => {
+    if (monthlySummaries && monthlySummaries.length > 0) {
+      return monthlySummaries;
+    }
+    const summaries: Record<string, any> = {};
+    const allTxs = [...transactions, ...archiveTransactions];
+    const seenIds = new Set<string>();
+
+    allTxs.forEach(tx => {
+      if (seenIds.has(tx.id)) return;
+      seenIds.add(tx.id);
+
+      const d = parseTxDate(tx.date);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!summaries[monthKey]) {
+        summaries[monthKey] = {
+          id: monthKey,
+          dues: 0,
+          payments: 0,
+          count: 0,
+          customerPayments: {}
+        };
+      }
+      const s = summaries[monthKey];
+      s.count++;
+      if (tx.type === 'due') {
+        s.dues += tx.amount;
+      } else {
+        s.payments += tx.amount;
+        if (!s.customerPayments[tx.customerId]) {
+          s.customerPayments[tx.customerId] = {
+            name: tx.customerName || 'Unknown',
+            total: 0
+          };
+        }
+        s.customerPayments[tx.customerId].total += tx.amount;
+      }
+    });
+
+    return Object.values(summaries).sort((a: any, b: any) => b.id.localeCompare(a.id));
+  }, [monthlySummaries, transactions, archiveTransactions]);
 
 // Sync Goals collection
   useEffect(() => {
@@ -982,6 +1046,17 @@ const lastSubmitRef = useRef<{
  saveLocalTransactions(updatedTxs);
  saveLocalCustomers(updatedCustomers);
 
+ adjustLocalMonthlySummaries(null, newTx);
+
+ if (settings) {
+   const newSettings = {
+     ...settings,
+     transactionsCount: (settings.transactionsCount || 0) + 1
+   };
+   setSettings(newSettings);
+   saveLocalSettings(newSettings);
+ }
+
  if (userId === 'local-guest-session' || isOfflineFallback) {
  return;
  }
@@ -1000,6 +1075,14 @@ const lastSubmitRef = useRef<{
  // In Firestore, if this customer was just created, updateDoc or setDoc is safe since we did await setDoc earlier
  batch.update(customerDocRef, {
  outstandingDue: increment(diff),
+ updatedAt: serverTimestamp()
+ });
+
+ adjustMonthlySummary(batch, userId, null, newTx);
+
+ const userDocRef = doc(db, 'users', userId);
+ batch.update(userDocRef, {
+ transactionsCount: increment(1),
  updatedAt: serverTimestamp()
  });
 
@@ -1904,7 +1987,11 @@ const lastSubmitRef = useRef<{
     type: 'savings' | 'deposit' = 'savings',
     customerId?: string,
     customerName?: string,
-    notes?: string
+    notes?: string,
+    principalAmount?: number,
+    interestRate?: number,
+    interestAmount?: number,
+    tenure?: number
   ) => {
     if (!userId) return null;
     const customGoalId = doc(collection(db, 'temp')).id;
@@ -1920,6 +2007,10 @@ const lastSubmitRef = useRef<{
       customerId: customerId || undefined,
       customerName: customerName || undefined,
       notes: notes?.trim() || undefined,
+      principalAmount: principalAmount ? Number(principalAmount) : undefined,
+      interestRate: interestRate !== undefined ? Number(interestRate) : undefined,
+      interestAmount: interestAmount !== undefined ? Number(interestAmount) : undefined,
+      tenure: tenure ? Number(tenure) : undefined,
       status: 'active',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -2112,6 +2203,7 @@ const lastSubmitRef = useRef<{
     trashCustomers,
     customerTransactions: customerTransactions.filter(t => customers.some(c => c.id === t.customerId)),
     dailyTransactions: dailyTransactions.filter(t => customers.some(c => c.id === t.customerId)),
+    todayTransactions: todayTransactions.filter(t => customers.some(c => c.id === t.customerId)),
     reminders: reminders.filter(r => customers.some(c => c.id === r.customerId)),
     settings,
     loading,
@@ -2136,7 +2228,7 @@ const lastSubmitRef = useRef<{
     customerTxLimit,
     loadMoreCustomerTransactions: () => setCustomerTxLimit(prev => prev + 10),
     resetCustomerTxLimit: () => setCustomerTxLimit(5),
-    monthlySummaries,
+    monthlySummaries: effectiveMonthlySummaries,
     goals,
     goalsSynced,
     createGoal,

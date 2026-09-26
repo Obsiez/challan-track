@@ -20,7 +20,11 @@ interface GoalsManagerProps {
     type?: 'savings' | 'deposit',
     customerId?: string,
     customerName?: string,
-    notes?: string
+    notes?: string,
+    principalAmount?: number,
+    interestRate?: number,
+    interestAmount?: number,
+    tenure?: number
   ) => Promise<string | null>;
   addGoalContribution: (
     goalId: string,
@@ -149,6 +153,56 @@ export default function GoalsManager({
     return { principal: P, interest: interestAmt, total, emi, count: N };
   }, [targetAmount, tenure, frequency, hasInterest, interestRate, goalType]);
 
+  // Helper to extract EMI specs from selectedGoal (or parse fallback from notes if legacy)
+  const selectedGoalEmiDetails = React.useMemo(() => {
+    if (!selectedGoal) return null;
+    let principal = selectedGoal.principalAmount;
+    let interestRate = selectedGoal.interestRate;
+    let interestAmount = selectedGoal.interestAmount;
+    let tenure = selectedGoal.tenure;
+
+    // Fallback parser if fields not stored directly but present in legacy notes
+    if (selectedGoal.notes && (!principal || !tenure)) {
+      const pMatch = selectedGoal.notes.match(/Principal:\s*[৳Tk.]*\s*([0-9,]+)/i);
+      if (pMatch && !principal) principal = parseAmount(pMatch[1]);
+
+      const feeMatch = selectedGoal.notes.match(/Fee:\s*[৳Tk.]*\s*([0-9,]+)/i);
+      if (feeMatch && interestAmount === undefined) interestAmount = parseAmount(feeMatch[1]);
+
+      const rateMatch = selectedGoal.notes.match(/\((\d+(?:\.\d+)?)\s*%\)/);
+      if (rateMatch && interestRate === undefined) interestRate = parseFloat(rateMatch[1]);
+
+      const tenureMatch = selectedGoal.notes.match(/EMI:\s*(\d+)/i);
+      if (tenureMatch && !tenure) tenure = parseInt(tenureMatch[1], 10);
+    }
+
+    if (!principal && selectedGoal.type === 'deposit') {
+      principal = Math.max(0, selectedGoal.targetAmount - (interestAmount || 0));
+    }
+
+    const hasEmiInfo = selectedGoal.type === 'deposit' || principal !== undefined || tenure !== undefined;
+    if (!hasEmiInfo) return null;
+
+    const tenureUnit = selectedGoal.frequency === 'monthly' 
+      ? (lang === 'bn' ? 'মাস' : 'Months') 
+      : selectedGoal.frequency === 'weekly' 
+        ? (lang === 'bn' ? 'সপ্তাহ' : 'Weeks') 
+        : (lang === 'bn' ? 'দিন' : 'Days');
+
+    const cleanNotes = selectedGoal.notes 
+      ? selectedGoal.notes.replace(/\s*•?\s*EMI:\s*\d+.*$/i, '').trim() 
+      : '';
+
+    return {
+      principal: principal || selectedGoal.targetAmount,
+      interestRate,
+      interestAmount: interestAmount || 0,
+      tenure,
+      tenureUnit,
+      cleanNotes
+    };
+  }, [selectedGoal, lang]);
+
   const handleCreateGoal = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
@@ -203,18 +257,29 @@ export default function GoalsManager({
     setIsSubmitting(true);
 
     const linkedCust = customers.find(c => c.id === selectedCustomerId);
+    const tenureNum = parseInt(tenure) || 0;
+    const interestAmt = (goalType === 'deposit' && hasInterest)
+      ? Math.round(principalVal * ((parseFloat(interestRate) || 0) / 100) * (frequency === 'monthly' ? tenureNum / 12 : frequency === 'weekly' ? tenureNum / 52 : tenureNum / 365))
+      : 0;
 
     try {
-      const res = await createGoal(
-        goalTitle.trim(),
-        finalTargetVal,
-        frequency,
-        instVal,
-        goalType,
-        selectedCustomerId || undefined,
-        linkedCust?.name,
-        finalNote || undefined
-      );
+      const [res] = await Promise.all([
+        createGoal(
+          goalTitle.trim(),
+          finalTargetVal,
+          frequency,
+          instVal,
+          goalType,
+          selectedCustomerId || undefined,
+          linkedCust?.name,
+          finalNote || undefined,
+          goalType === 'deposit' ? principalVal : undefined,
+          goalType === 'deposit' && hasInterest ? parseFloat(interestRate) : undefined,
+          goalType === 'deposit' && hasInterest ? interestAmt : 0,
+          goalType === 'deposit' && frequency !== 'flexible' ? tenureNum : undefined
+        ),
+        new Promise(resolve => setTimeout(resolve, 600))
+      ]);
 
       if (res) {
         setGoalTitle('');
@@ -247,7 +312,10 @@ export default function GoalsManager({
 
     setIsSubmitting(true);
     try {
-      const updated = await addGoalContribution(selectedGoal.id, amt, installmentNote, syncToLedger);
+      const [updated] = await Promise.all([
+        addGoalContribution(selectedGoal.id, amt, installmentNote, syncToLedger),
+        new Promise(resolve => setTimeout(resolve, 600))
+      ]);
       
       const newSavedAmount = (Number(selectedGoal.savedAmount) || 0) + amt;
       const isCompleted = newSavedAmount >= (Number(selectedGoal.targetAmount) || 0);
@@ -865,10 +933,15 @@ export default function GoalsManager({
 
       {/* ── GOAL DETAIL VIEW MODAL ── */}
       {selectedGoal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-select overflow-y-auto hide-scrollbar">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-select overflow-hidden">
           <div className="absolute inset-0" onClick={() => setSelectedGoal(null)} />
 
-          <div className="bg-white dark:bg-zinc-900 w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col animate-slide-up relative z-10">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className="bg-white dark:bg-zinc-900 w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col relative z-10"
+          >
             
             {/* Header (Consistent distinct icons) */}
             <div className="p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
@@ -944,6 +1017,65 @@ export default function GoalsManager({
                 </div>
               </div>
 
+              {/* Dedicated EMI & Loan Details Card */}
+              {selectedGoalEmiDetails && (
+                <div className="bg-rose-50/60 dark:bg-rose-950/20 p-4 rounded-2xl border border-rose-200/60 dark:border-rose-900/40 space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-rose-200/50 dark:border-rose-900/40">
+                    <div className="flex items-center gap-2">
+                      <Calculator className="w-4 h-4 text-[#e0385e]" />
+                      <span className="text-xs font-black text-[#e0385e] uppercase tracking-wider">
+                        {lang === 'bn' ? 'ইএমআই ও কিস্তির বিবরণী' : 'EMI & Loan Breakdown'}
+                      </span>
+                    </div>
+                    {selectedGoalEmiDetails.tenure && (
+                      <span className="px-2.5 py-0.5 rounded-md text-[11px] font-black bg-[#e0385e]/10 text-[#e0385e]">
+                        {formatNumber(selectedGoalEmiDetails.tenure, lang)} {selectedGoalEmiDetails.tenureUnit}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-rose-100 dark:border-rose-900/30">
+                      <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
+                        {lang === 'bn' ? 'মূল পরিমাণ (Principal)' : 'Principal Amount'}
+                      </span>
+                      <span className="text-sm font-black text-zinc-900 dark:text-white mt-0.5 block">
+                        ৳{formatNumber(selectedGoalEmiDetails.principal, lang)}
+                      </span>
+                    </div>
+
+                    <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-rose-100 dark:border-rose-900/30">
+                      <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
+                        {lang === 'bn' ? 'মুনাফা / অতিরিক্ত ফি (Fee)' : 'Interest / Fee'}
+                      </span>
+                      <span className="text-sm font-black text-rose-600 dark:text-rose-400 mt-0.5 block">
+                        {selectedGoalEmiDetails.interestAmount > 0 
+                          ? `+৳${formatNumber(selectedGoalEmiDetails.interestAmount, lang)} ${selectedGoalEmiDetails.interestRate ? `(${selectedGoalEmiDetails.interestRate}%)` : ''}` 
+                          : (lang === 'bn' ? '০% (ফি প্রযোজ্য নয়)' : '0% (No Fee)')}
+                      </span>
+                    </div>
+
+                    <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-rose-100 dark:border-rose-900/30">
+                      <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
+                        {lang === 'bn' ? 'প্রতি কিস্তি (Per Installment)' : 'Installment Rate'}
+                      </span>
+                      <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block">
+                        ৳{formatNumber(selectedGoal.installmentAmount || Math.ceil(selectedGoal.targetAmount / (selectedGoalEmiDetails.tenure || 1)), lang)}
+                      </span>
+                    </div>
+
+                    <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-rose-100 dark:border-rose-900/30">
+                      <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
+                        {lang === 'bn' ? 'মোট প্রদেয় (Total Payable)' : 'Total Payable'}
+                      </span>
+                      <span className="text-sm font-black text-zinc-900 dark:text-white mt-0.5 block">
+                        ৳{formatNumber(selectedGoal.targetAmount, lang)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Installment Info & Client Linked */}
               <div className="bg-zinc-50 dark:bg-zinc-950/40 p-4 rounded-2xl border border-zinc-100 dark:border-zinc-850 text-sm font-semibold space-y-2">
                 {selectedGoal.customerName && (
@@ -962,10 +1094,12 @@ export default function GoalsManager({
                     {selectedGoal.frequency === 'flexible' && t.flexible}
                   </span>
                 </div>
-                {selectedGoal.notes && (
+                {(selectedGoalEmiDetails?.cleanNotes || (!selectedGoalEmiDetails && selectedGoal.notes)) && (
                   <div className="flex justify-between items-center text-zinc-500 dark:text-zinc-400 border-t border-zinc-200/50 dark:border-zinc-800/50 pt-2">
                     <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t.notes}</span>
-                    <span className="font-medium text-zinc-700 dark:text-zinc-300 text-xs">{selectedGoal.notes}</span>
+                    <span className="font-medium text-zinc-700 dark:text-zinc-300 text-xs">
+                      {selectedGoalEmiDetails?.cleanNotes || selectedGoal.notes}
+                    </span>
                   </div>
                 )}
               </div>
@@ -1084,9 +1218,21 @@ export default function GoalsManager({
                       <button
                         type="submit"
                         disabled={isSubmitting}
-                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors cursor-pointer text-xs flex items-center justify-center gap-2"
+                        className={`w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-all cursor-pointer text-xs flex items-center justify-center gap-2 shadow-sm ${
+                          isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
+                        }`}
                       >
-                        {isSubmitting ? t.saving : (lang === 'bn' ? 'জমা সম্পন্ন করুন' : 'Confirm Deposit')}
+                        {isSubmitting ? (
+                          <span className="flex items-center gap-2">
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            {t.saving}
+                          </span>
+                        ) : (
+                          lang === 'bn' ? 'জমা সম্পন্ন করুন' : 'Confirm Deposit'
+                        )}
                       </button>
                     </form>
                   )}
@@ -1155,14 +1301,14 @@ export default function GoalsManager({
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
 
       {/* ── 1 & 2. CUSTOM REACTIVATION CONFIRMATION POPUP (LEARNED FROM RESTORE CUSTOMER) ── */}
       {showReactivateConfirm && selectedGoal && (
         <div 
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 animate-reveal"
+          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-[2px] animate-in fade-in duration-150"
           onClick={() => setShowReactivateConfirm(false)}
         >
           <motion.div
@@ -1240,7 +1386,7 @@ export default function GoalsManager({
       {/* ── 2. CUSTOM CANCEL CONFIRMATION POPUP (LEARNED FROM MOVE CUSTOMER TO TRASH) ── */}
       {showCancelConfirm && selectedGoal && (
         <div 
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 animate-reveal"
+          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-[2px] animate-in fade-in duration-150"
           onClick={() => setShowCancelConfirm(false)}
         >
           <motion.div
@@ -1318,7 +1464,7 @@ export default function GoalsManager({
       {/* ── 2. CUSTOM DELETE CONFIRMATION POPUP (LEARNED FROM MOVE CUSTOMER TO TRASH) ── */}
       {showDeleteConfirm && selectedGoal && (
         <div 
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 animate-reveal"
+          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-[2px] animate-in fade-in duration-150"
           onClick={() => setShowDeleteConfirm(false)}
         >
           <motion.div
