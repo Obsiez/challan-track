@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Customer, SavingGoal, GoalContribution } from '../types';
 import { 
-  Target, Calendar, Plus, Users, Trash2, CheckCircle2, ChevronRight, X, AlertCircle, ReceiptText, AlertTriangle, PiggyBank, CalendarClock, RotateCcw, Goal 
+  Target, Calendar, Plus, Users, Trash2, CheckCircle2, ChevronRight, X, AlertCircle, ReceiptText, AlertTriangle, PiggyBank, CalendarClock, RotateCcw, Goal, Percent, Calculator 
 } from 'lucide-react';
+import { motion } from 'motion/react';
 import { triggerHaptic } from '../lib/haptics';
 import { translations, Language, formatNumber, formatIndianNumberString } from '../lib/translations';
 import { toast } from 'sonner';
@@ -51,13 +52,18 @@ export default function GoalsManager({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [goalTitle, setGoalTitle] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
-  const [goalType, setGoalType] = useState<'savings' | 'deposit'>('deposit'); // Default to EMI / Installment as it's most used
+  const [goalType, setGoalType] = useState<'savings' | 'deposit'>('deposit'); // Default to EMI as it's used most often
   const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'flexible'>('monthly');
   const [installmentAmount, setInstallmentAmount] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+
+  // 4. EMI Custom Setup: Tenure & Interest Rate
+  const [tenure, setTenure] = useState<string>('6'); // Default 6 months tenure
+  const [hasInterest, setHasInterest] = useState<boolean>(false);
+  const [interestRate, setInterestRate] = useState<string>('10'); // Default 10% annual/fee
 
   // Selected Goal Details Modal state
   const [selectedGoal, setSelectedGoal] = useState<SavingGoal | null>(null);
@@ -66,13 +72,14 @@ export default function GoalsManager({
   const [installmentNote, setInstallmentNote] = useState('');
   const [syncToLedger, setSyncToLedger] = useState(true);
 
-  // Custom Confirmation Popups
+  // 1 & 2. Custom Confirmation Popups (Learned from Move Customer to Trash and Restore)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showReactivateConfirm, setShowReactivateConfirm] = useState(false);
 
-  // 1. Disable background scrolling when modal is open
+  // 1. Disable background scrolling when ANY modal is active
   useEffect(() => {
-    if (showCreateModal || selectedGoal || showCancelConfirm || showDeleteConfirm) {
+    if (showCreateModal || selectedGoal || showCancelConfirm || showDeleteConfirm || showReactivateConfirm) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
@@ -80,7 +87,7 @@ export default function GoalsManager({
     return () => {
       document.body.style.overflow = '';
     };
-  }, [showCreateModal, selectedGoal, showCancelConfirm, showDeleteConfirm]);
+  }, [showCreateModal, selectedGoal, showCancelConfirm, showDeleteConfirm, showReactivateConfirm]);
 
   // Computed lists
   const activeGoals = goals.filter(g => g.status === 'active');
@@ -107,6 +114,41 @@ export default function GoalsManager({
     setter(formatIndianNumberString(sanitized));
   };
 
+  // 4. Auto-calculate EMI installment when principal, tenure, frequency, or interest changes
+  useEffect(() => {
+    if (goalType !== 'deposit' || frequency === 'flexible') return;
+    const P = parseAmount(targetAmount);
+    const N = parseInt(tenure) || 0;
+    if (P > 0 && N > 0) {
+      let interestAmt = 0;
+      if (hasInterest) {
+        const r = parseFloat(interestRate) || 0;
+        const years = frequency === 'monthly' ? N / 12 : frequency === 'weekly' ? N / 52 : N / 365;
+        interestAmt = Math.round(P * (r / 100) * years);
+      }
+      const totalPayable = P + interestAmt;
+      const emi = Math.ceil(totalPayable / N);
+      setInstallmentAmount(formatIndianNumberString(String(emi)));
+    }
+  }, [targetAmount, tenure, frequency, hasInterest, interestRate, goalType]);
+
+  // Quick helper to compute EMI calculation preview
+  const emiPreview = React.useMemo(() => {
+    if (goalType !== 'deposit') return null;
+    const P = parseAmount(targetAmount);
+    const N = parseInt(tenure) || 0;
+    if (P <= 0 || N <= 0 || frequency === 'flexible') return null;
+    let interestAmt = 0;
+    if (hasInterest) {
+      const r = parseFloat(interestRate) || 0;
+      const years = frequency === 'monthly' ? N / 12 : frequency === 'weekly' ? N / 52 : N / 365;
+      interestAmt = Math.round(P * (r / 100) * years);
+    }
+    const total = P + interestAmt;
+    const emi = Math.ceil(total / N);
+    return { principal: P, interest: interestAmt, total, emi, count: N };
+  }, [targetAmount, tenure, frequency, hasInterest, interestRate, goalType]);
+
   const handleCreateGoal = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
@@ -117,10 +159,35 @@ export default function GoalsManager({
       return;
     }
 
-    const targetVal = parseAmount(targetAmount);
-    if (!targetVal || targetVal <= 0) {
+    const principalVal = parseAmount(targetAmount);
+    if (!principalVal || principalVal <= 0) {
       setFormError(lang === 'bn' ? 'টার্গেট পরিমাণ সঠিক নয়' : 'Please enter a valid target amount');
       return;
+    }
+
+    // Determine target amount (with interest if applicable)
+    let finalTargetVal = principalVal;
+    let finalNote = notes.trim();
+
+    if (goalType === 'deposit' && frequency !== 'flexible') {
+      const N = parseInt(tenure) || 0;
+      if (N <= 0) {
+        setFormError(lang === 'bn' ? 'কিস্তির মেয়াদ সঠিক নয়' : 'Please enter a valid tenure');
+        return;
+      }
+      if (hasInterest) {
+        const r = parseFloat(interestRate) || 0;
+        const years = frequency === 'monthly' ? N / 12 : frequency === 'weekly' ? N / 52 : N / 365;
+        const interestAmt = Math.round(principalVal * (r / 100) * years);
+        finalTargetVal = principalVal + interestAmt;
+        const tenureUnit = frequency === 'monthly' 
+          ? (lang === 'bn' ? 'মাস' : 'Months') 
+          : frequency === 'weekly' 
+            ? (lang === 'bn' ? 'সপ্তাহ' : 'Weeks') 
+            : (lang === 'bn' ? 'দিন' : 'Days');
+        const emiSpec = `EMI: ${N} ${tenureUnit} | Principal: ৳${formatNumber(principalVal, lang)} | Fee: ৳${formatNumber(interestAmt, lang)} (${interestRate}%)`;
+        finalNote = finalNote ? `${finalNote} • ${emiSpec}` : emiSpec;
+      }
     }
 
     const instVal = installmentAmount ? parseAmount(installmentAmount) : undefined;
@@ -128,7 +195,7 @@ export default function GoalsManager({
       setFormError(lang === 'bn' ? 'কিস্তির পরিমাণ সঠিক নয়' : 'Please enter a valid installment amount');
       return;
     }
-    if (instVal !== undefined && instVal > targetVal) {
+    if (instVal !== undefined && instVal > finalTargetVal) {
       setFormError(lang === 'bn' ? 'কিস্তির পরিমাণ মোট লক্ষ্যের চেয়ে বেশি হতে পারে না' : 'Installment cannot be greater than target amount');
       return;
     }
@@ -140,13 +207,13 @@ export default function GoalsManager({
     try {
       const res = await createGoal(
         goalTitle.trim(),
-        targetVal,
+        finalTargetVal,
         frequency,
         instVal,
         goalType,
         selectedCustomerId || undefined,
         linkedCust?.name,
-        notes.trim() || undefined
+        finalNote || undefined
       );
 
       if (res) {
@@ -155,6 +222,9 @@ export default function GoalsManager({
         setGoalType('deposit');
         setFrequency('monthly');
         setInstallmentAmount('');
+        setTenure('6');
+        setHasInterest(false);
+        setInterestRate('10');
         setSelectedCustomerId('');
         setNotes('');
         setShowCreateModal(false);
@@ -303,7 +373,7 @@ export default function GoalsManager({
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase shrink-0 flex items-center gap-1 ${
                       isSavings 
                         ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400' 
-                        : 'bg-rose-50 text-[#ec003f] dark:bg-rose-950/20 dark:text-rose-400'
+                        : 'bg-rose-50 text-[#e0385e] dark:bg-rose-950/20 dark:text-rose-400'
                     }`}>
                       {isSavings ? (
                         <PiggyBank className="w-3.5 h-3.5" />
@@ -341,7 +411,7 @@ export default function GoalsManager({
                       className={`h-full rounded-full transition-all duration-700 ${
                         goal.status === 'completed' 
                           ? 'bg-emerald-500' 
-                          : isSavings ? 'bg-emerald-500/80' : 'bg-[#ec003f]'
+                          : isSavings ? 'bg-emerald-500/80' : 'bg-[#e0385e]'
                       }`}
                       style={{ width: `${percent}%` }}
                     />
@@ -373,7 +443,7 @@ export default function GoalsManager({
         </div>
       )}
 
-      {/* ── CREATE GOAL MODAL (IDENTICAL IN ACCURACY & UX TO QUICK ENTRY) ── */}
+      {/* ── CREATE GOAL MODAL ── */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-select overflow-y-auto hide-scrollbar">
           <div className="absolute inset-0" onClick={() => setShowCreateModal(false)} />
@@ -397,7 +467,7 @@ export default function GoalsManager({
             <form onSubmit={handleCreateGoal} className="flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 overflow-y-auto hide-scrollbar p-5 space-y-6">
                 
-                {/* 5 & 6. Goal Type Selection (EMI / INSTALLMENT vs SAVINGS GOAL) */}
+                {/* 1. Goal Type Selection (EMI / INSTALLMENT vs SAVINGS GOAL) */}
                 <div className="space-y-2">
                   <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
                     {t.goalType}
@@ -408,7 +478,7 @@ export default function GoalsManager({
                       onClick={() => { triggerHaptic('single'); setGoalType('deposit'); }}
                       className={`py-5 px-4 rounded-2xl flex flex-col items-center justify-center gap-2 border-3 transition-all cursor-pointer ${
                         goalType === 'deposit'
-                          ? 'bg-rose-50 border-[#ec003f] text-[#ec003f] dark:bg-rose-950/20 dark:border-[#ec003f] dark:text-rose-400 font-bold shadow-lg shadow-rose-100 dark:shadow-none'
+                          ? 'bg-rose-50 border-[#e0385e] text-[#e0385e] dark:bg-rose-950/20 dark:border-[#e0385e] dark:text-rose-400 font-bold shadow-lg shadow-rose-100 dark:shadow-none'
                           : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-150 dark:bg-zinc-850 dark:border-zinc-800 dark:text-zinc-400'
                       }`}
                     >
@@ -433,7 +503,7 @@ export default function GoalsManager({
                   </div>
                 </div>
 
-                {/* 2. Title Input (Clean placeholder without misleading preset amounts) */}
+                {/* 2. Title Input */}
                 <div className="space-y-1">
                   <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
                     {t.goalTitle} *
@@ -441,17 +511,24 @@ export default function GoalsManager({
                   <input
                     type="text"
                     required
-                    placeholder={lang === 'bn' ? 'লক্ষ্যের শিরোনাম লিখুন (যেমন: টিভি কিস্তি, বাড়ি নির্মাণ)' : 'Enter goal title (e.g. TV Installment, House Construction)'}
+                    placeholder={
+                      goalType === 'deposit'
+                        ? (lang === 'bn' ? 'লক্ষ্যের শিরোনাম লিখুন (যেমন: টিভি কিস্তি, বাইক লোন)' : 'Enter goal title (e.g. TV Installment, Bike Loan)')
+                        : (lang === 'bn' ? 'লক্ষ্যের শিরোনাম লিখুন (যেমন: বাড়ি নির্মাণ, সঞ্চয় স্কিম)' : 'Enter goal title (e.g. House Construction, Savings Scheme)')
+                    }
                     value={goalTitle}
                     onChange={(e) => setGoalTitle(e.target.value)}
                     className="w-full px-4 py-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold text-base focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
                   />
                 </div>
 
-                {/* 3. Target Amount (Formatted with ৳ prefix and 0 placeholder) */}
+                {/* 3. Target Amount */}
                 <div className="space-y-2">
                   <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
-                    {t.targetAmount} *
+                    {goalType === 'deposit' 
+                      ? (lang === 'bn' ? 'মোট ঋণের পরিমাণ / আসল টাকা *' : 'Total Principal / Loan Amount *')
+                      : `${t.targetAmount} *`
+                    }
                   </span>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-2xl font-bold text-zinc-400 dark:text-zinc-500 select-none">
@@ -490,50 +567,230 @@ export default function GoalsManager({
                         triggerHaptic('tick');
                         setTargetAmount('');
                       }}
-                      className="px-3 py-2 bg-rose-50 dark:bg-rose-950/20 text-[#ec003f] font-bold rounded-xl transition-all text-2xs cursor-pointer"
+                      className="px-3 py-2 bg-rose-50 dark:bg-rose-950/20 text-[#e0385e] font-bold rounded-xl transition-all text-2xs cursor-pointer"
                     >
                       {lang === 'bn' ? 'মুছুন' : 'Clear'}
                     </button>
                   </div>
                 </div>
 
-                {/* 4. Installment & Frequency Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
-                      {t.installmentAmount}
-                    </span>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-base font-bold text-zinc-400 dark:text-zinc-500 select-none">
-                        ৳
+                {/* 4. EMI CUSTOM SETUP: TENURE & INTEREST RATE (Only for EMI / Installment) */}
+                {goalType === 'deposit' && (
+                  <div className="p-4 bg-zinc-50 dark:bg-zinc-950/60 border border-zinc-200 dark:border-zinc-800 rounded-2xl space-y-4">
+                    <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-2">
+                      <Calculator className="w-4 h-4 text-[#e0385e]" />
+                      <span className="text-xs font-black uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                        {lang === 'bn' ? 'ইএমআই ক্যালকুলেটর ও কিস্তির হিসাব' : 'EMI & Tenure Auto-Calculator'}
                       </span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        placeholder="0"
-                        value={installmentAmount}
-                        onChange={(e) => handleAmountChange(e.target.value, setInstallmentAmount)}
-                        className="w-full pl-9 pr-3 py-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold text-base focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
-                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Frequency */}
+                      <div className="space-y-1">
+                        <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
+                          {t.frequency}
+                        </span>
+                        <select
+                          value={frequency}
+                          onChange={(e: any) => setFrequency(e.target.value)}
+                          className="w-full px-3 py-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-850 dark:text-white font-bold text-sm focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                        >
+                          <option value="monthly">{t.monthly}</option>
+                          <option value="weekly">{t.weekly}</option>
+                          <option value="daily">{t.daily}</option>
+                          <option value="flexible">{t.flexible}</option>
+                        </select>
+                      </div>
+
+                      {/* Tenure if not flexible */}
+                      {frequency !== 'flexible' && (
+                        <div className="space-y-1">
+                          <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
+                            {frequency === 'monthly' && (lang === 'bn' ? 'মেয়াদ (মাস)' : 'Tenure (Months)')}
+                            {frequency === 'weekly' && (lang === 'bn' ? 'মেয়াদ (সপ্তাহ)' : 'Tenure (Weeks)')}
+                            {frequency === 'daily' && (lang === 'bn' ? 'মেয়াদ (দিন)' : 'Tenure (Days)')}
+                          </span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="360"
+                            value={tenure}
+                            onChange={(e) => setTenure(e.target.value)}
+                            placeholder="6"
+                            className="w-full px-4 py-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white font-bold text-sm focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quick Tenure Preset Chips */}
+                    {frequency !== 'flexible' && (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {frequency === 'monthly' && [3, 6, 12, 18, 24].map(n => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => { triggerHaptic('single'); setTenure(String(n)); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              tenure === String(n)
+                                ? 'bg-[#e0385e] text-white shadow-sm'
+                                : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-650 dark:text-zinc-300 hover:bg-zinc-100'
+                            }`}
+                          >
+                            {formatNumber(n, lang)} {lang === 'bn' ? 'মাস' : 'Mo'}
+                          </button>
+                        ))}
+                        {frequency === 'weekly' && [4, 8, 12, 24, 52].map(n => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => { triggerHaptic('single'); setTenure(String(n)); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              tenure === String(n)
+                                ? 'bg-[#e0385e] text-white shadow-sm'
+                                : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-650 dark:text-zinc-300 hover:bg-zinc-100'
+                            }`}
+                          >
+                            {formatNumber(n, lang)} {lang === 'bn' ? 'সপ্তাহ' : 'Wk'}
+                          </button>
+                        ))}
+                        {frequency === 'daily' && [30, 60, 90, 180, 365].map(n => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => { triggerHaptic('single'); setTenure(String(n)); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              tenure === String(n)
+                                ? 'bg-[#e0385e] text-white shadow-sm'
+                                : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-650 dark:text-zinc-300 hover:bg-zinc-100'
+                            }`}
+                          >
+                            {formatNumber(n, lang)} {lang === 'bn' ? 'দিন' : 'Days'}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Interest / Additional Fee Checkmark */}
+                    <div className="pt-2 border-t border-zinc-200/60 dark:border-zinc-800/60 space-y-3">
+                      <div className="flex items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          id="interest_checkbox"
+                          checked={hasInterest}
+                          onChange={(e) => setHasInterest(e.target.checked)}
+                          className="w-4.5 h-4.5 accent-[#e0385e] rounded cursor-pointer"
+                        />
+                        <label htmlFor="interest_checkbox" className="text-xs font-bold text-zinc-700 dark:text-zinc-300 cursor-pointer select-none">
+                          {lang === 'bn' ? 'সুদ বা অতিরিক্ত ফি / চার্জ যুক্ত করুন' : 'Add Interest / Additional Fee Rate'}
+                        </label>
+                      </div>
+
+                      {hasInterest && (
+                        <div className="space-y-2 p-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl animate-reveal">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                              {lang === 'bn' ? 'বার্ষিক সুদের হার / ফি (%)' : 'Interest / Fee Rate (% p.a.)'}
+                            </span>
+                            <span className="text-xs font-black text-[#e0385e]">{interestRate}%</span>
+                          </div>
+                          <div className="relative">
+                            <Percent className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.5"
+                              value={interestRate}
+                              onChange={(e) => setInterestRate(e.target.value)}
+                              placeholder="10"
+                              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold text-sm focus:outline-none focus:border-[#e0385e]"
+                            />
+                          </div>
+                          {/* Quick interest chips */}
+                          <div className="flex gap-1.5 pt-1">
+                            {[5, 10, 12, 15, 20].map(r => (
+                              <button
+                                key={r}
+                                type="button"
+                                onClick={() => { triggerHaptic('single'); setInterestRate(String(r)); }}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                  interestRate === String(r)
+                                    ? 'bg-[#e0385e] text-white'
+                                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-650 dark:text-zinc-300 hover:bg-zinc-200'
+                                }`}
+                              >
+                                {r}%
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Auto Calculated Live Preview Banner */}
+                    {emiPreview && (
+                      <div className="p-3.5 bg-rose-50 dark:bg-rose-950/20 border border-[#e0385e]/20 rounded-xl space-y-2">
+                        <div className="flex justify-between items-center text-xs font-bold text-zinc-600 dark:text-zinc-400">
+                          <span>{lang === 'bn' ? 'মূল আসল' : 'Principal'}: ৳{formatNumber(emiPreview.principal, lang)}</span>
+                          {emiPreview.interest > 0 && (
+                            <span className="text-[#e0385e]">
+                              +{lang === 'bn' ? 'সুদ' : 'Fee'}: ৳{formatNumber(emiPreview.interest, lang)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex justify-between items-baseline border-t border-[#e0385e]/20 pt-2">
+                          <span className="text-xs font-black text-zinc-700 dark:text-zinc-300 uppercase">
+                            {lang === 'bn' ? 'স্বয়ংক্রিয় কিস্তি' : 'Auto Installment'}:
+                          </span>
+                          <span className="text-base font-black text-[#e0385e]">
+                            ৳{formatNumber(emiPreview.emi, lang)} / {frequency === 'monthly' ? t.monthly : frequency === 'weekly' ? t.weekly : t.daily}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Savings Installment & Frequency Grid (When not EMI) */}
+                {goalType === 'savings' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
+                        {t.installmentAmount}
+                      </span>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-base font-bold text-zinc-400 dark:text-zinc-500 select-none">
+                          ৳
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="0"
+                          value={installmentAmount}
+                          onChange={(e) => handleAmountChange(e.target.value, setInstallmentAmount)}
+                          className="w-full pl-9 pr-3 py-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold text-base focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
+                        {t.frequency}
+                      </span>
+                      <select
+                        value={frequency}
+                        onChange={(e: any) => setFrequency(e.target.value)}
+                        className="w-full px-3 py-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-850 dark:text-white font-bold text-base focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                      >
+                        <option value="monthly">{t.monthly}</option>
+                        <option value="weekly">{t.weekly}</option>
+                        <option value="daily">{t.daily}</option>
+                        <option value="flexible">{t.flexible}</option>
+                      </select>
                     </div>
                   </div>
-
-                  <div className="space-y-1">
-                    <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
-                      {t.frequency}
-                    </span>
-                    <select
-                      value={frequency}
-                      onChange={(e: any) => setFrequency(e.target.value)}
-                      className="w-full px-3 py-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-850 dark:text-white font-bold text-base focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-                    >
-                      <option value="monthly">{t.monthly}</option>
-                      <option value="weekly">{t.weekly}</option>
-                      <option value="daily">{t.daily}</option>
-                      <option value="flexible">{t.flexible}</option>
-                    </select>
-                  </div>
-                </div>
+                )}
 
                 {/* 5. Link Customer (Optional) */}
                 <div className="space-y-1">
@@ -570,11 +827,11 @@ export default function GoalsManager({
 
               </div>
 
-              {/* Sticky Bottom Actions */}
+              {/* 3. Sticky Bottom Actions (Red when EMI/Installment, Emerald when Savings) */}
               <div className="p-5 border-t border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 shrink-0">
                 {formError && (
-                  <div className="p-4 mb-4 bg-rose-50 dark:bg-rose-900/35 rounded-xl text-[#ec003f] font-semibold text-sm flex items-start gap-2">
-                    <AlertCircle className="w-4.5 h-4.5 text-[#ec003f] shrink-0 mt-0.5" />
+                  <div className="p-4 mb-4 bg-rose-50 dark:bg-rose-900/35 rounded-xl text-[#e0385e] font-semibold text-sm flex items-start gap-2">
+                    <AlertCircle className="w-4.5 h-4.5 text-[#e0385e] shrink-0 mt-0.5" />
                     <span>{formError}</span>
                   </div>
                 )}
@@ -582,9 +839,11 @@ export default function GoalsManager({
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className={`w-full py-4.5 rounded-2xl font-extrabold text-lg flex items-center justify-center shadow-lg transition-all cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-500 dark:hover:bg-emerald-400 dark:text-zinc-950 shadow-emerald-200 dark:shadow-none ${
-                    isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
-                  }`}
+                  className={`w-full py-4.5 rounded-2xl font-extrabold text-lg flex items-center justify-center shadow-lg transition-all cursor-pointer ${
+                    goalType === 'deposit'
+                      ? 'bg-[#e0385e] hover:bg-[#c92a4f] text-white shadow-rose-200 dark:shadow-none'
+                      : 'bg-emerald-600 hover:bg-emerald-700 text-white dark:bg-emerald-500 dark:hover:bg-emerald-400 dark:text-zinc-950 shadow-emerald-200 dark:shadow-none'
+                  } ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
                   {isSubmitting ? (
                     <span className="flex items-center gap-2">
@@ -617,7 +876,7 @@ export default function GoalsManager({
                 <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider inline-flex items-center gap-1 ${
                   selectedGoal.type === 'savings' 
                     ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400' 
-                    : 'bg-rose-50 text-[#ec003f] dark:bg-rose-950/20 dark:text-rose-400'
+                    : 'bg-rose-50 text-[#e0385e] dark:bg-rose-950/20 dark:text-rose-400'
                 }`}>
                   {selectedGoal.type === 'savings' ? (
                     <PiggyBank className="w-3.5 h-3.5" />
@@ -634,7 +893,7 @@ export default function GoalsManager({
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={openDeleteConfirmModal}
-                  className="p-3 bg-zinc-100 hover:bg-rose-50 dark:bg-zinc-800 dark:hover:bg-rose-950/30 rounded-full text-zinc-550 hover:text-[#ec003f] dark:text-zinc-400 transition-colors cursor-pointer"
+                  className="p-3 bg-zinc-100 hover:bg-rose-50 dark:bg-zinc-800 dark:hover:bg-rose-950/30 rounded-full text-zinc-550 hover:text-[#e0385e] dark:text-zinc-400 transition-colors cursor-pointer"
                   title={lang === 'bn' ? 'মুছে ফেলুন' : 'Delete Goal'}
                 >
                   <Trash2 className="w-5 h-5" />
@@ -664,7 +923,7 @@ export default function GoalsManager({
                 </div>
                 <div className="p-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-850 rounded-2xl">
                   <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">{t.remaining}</span>
-                  <span className="text-base font-black text-[#ec003f] mt-1 block">৳{formatNumber(Math.max(0, selectedGoal.targetAmount - (selectedGoal.savedAmount || 0)), lang)}</span>
+                  <span className="text-base font-black text-[#e0385e] mt-1 block">৳{formatNumber(Math.max(0, selectedGoal.targetAmount - (selectedGoal.savedAmount || 0)), lang)}</span>
                 </div>
               </div>
 
@@ -675,7 +934,7 @@ export default function GoalsManager({
                     className={`h-full rounded-full transition-all duration-700 ${
                       selectedGoal.status === 'completed' 
                         ? 'bg-emerald-500' 
-                        : selectedGoal.type === 'savings' ? 'bg-emerald-500/80' : 'bg-[#ec003f]'
+                        : selectedGoal.type === 'savings' ? 'bg-emerald-500/80' : 'bg-[#e0385e]'
                     }`}
                     style={{ width: `${Math.min(100, Math.round(((selectedGoal.savedAmount || 0) / (selectedGoal.targetAmount || 1)) * 100))}%` }}
                   />
@@ -788,7 +1047,7 @@ export default function GoalsManager({
                               triggerHaptic('tick');
                               setInstallmentInput('');
                             }}
-                            className="px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/20 text-[#ec003f] font-bold rounded-lg transition-all text-2xs cursor-pointer"
+                            className="px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/20 text-[#e0385e] font-bold rounded-lg transition-all text-2xs cursor-pointer"
                           >
                             {lang === 'bn' ? 'মুছুন' : 'Clear'}
                           </button>
@@ -875,7 +1134,7 @@ export default function GoalsManager({
                       triggerHaptic('single');
                       setShowCancelConfirm(true);
                     }}
-                    className="text-xs font-extrabold text-[#ec003f] hover:underline cursor-pointer"
+                    className="text-xs font-extrabold text-[#e0385e] hover:underline cursor-pointer"
                   >
                     {lang === 'bn' ? 'লক্ষ্যটি বাতিল করুন' : 'Cancel this Goal'}
                   </button>
@@ -884,11 +1143,9 @@ export default function GoalsManager({
                 <div className="flex justify-center pt-2">
                   <button
                     type="button"
-                    onClick={async () => {
+                    onClick={() => {
                       triggerHaptic('single');
-                      await updateGoalStatus(selectedGoal.id, 'active');
-                      setSelectedGoal(prev => prev ? { ...prev, status: 'active' } : null);
-                      toast.success(lang === 'bn' ? 'লক্ষ্যটি পুনরায় চালু করা হয়েছে' : 'Goal reactivated');
+                      setShowReactivateConfirm(true);
                     }}
                     className="text-xs font-extrabold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline flex items-center gap-1.5"
                   >
@@ -902,32 +1159,137 @@ export default function GoalsManager({
         </div>
       )}
 
-      {/* ── CUSTOM CANCEL CONFIRMATION POPUP ── */}
+      {/* ── 1 & 2. CUSTOM REACTIVATION CONFIRMATION POPUP (LEARNED FROM RESTORE CUSTOMER) ── */}
+      {showReactivateConfirm && selectedGoal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 animate-reveal"
+          onClick={() => setShowReactivateConfirm(false)}
+        >
+          <motion.div
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white dark:bg-zinc-900 w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
+          >
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <RotateCcw className="w-8 h-8 text-emerald-600 dark:text-emerald-500" />
+              </div>
+              <h3 className="text-lg font-black text-emerald-600 dark:text-emerald-400 mb-2">
+                {lang === 'bn' ? 'লক্ষ্য পুনরায় চালুকরণ' : 'Reactivate Goal'}
+              </h3>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                {lang === 'bn' 
+                  ? 'আপনি কি নিশ্চিত এই লক্ষ্যটি পুনরায় চলমান তালিকায় ফিরিয়ে নিতে চান?' 
+                  : 'Are you sure you want to restore this goal back to your active list?'}
+              </p>
+              
+              {/* Details Card */}
+              <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 text-left space-y-2.5 mt-4">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'লক্ষ্য' : 'Goal'}</span>
+                  <span className="text-sm font-extrabold text-zinc-850 dark:text-zinc-150 truncate max-w-[200px]">{selectedGoal.title}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'ধরন' : 'Type'}</span>
+                  <span className="text-xs font-extrabold text-zinc-700 dark:text-zinc-300">{selectedGoal.type === 'savings' ? t.savings : t.deposit}</span>
+                </div>
+                {selectedGoal.customerName && (
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'গ্রাহক' : 'Customer'}</span>
+                    <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">{selectedGoal.customerName}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'লক্ষ্যমাত্রা' : 'Target'}</span>
+                  <span className="text-sm font-black text-zinc-900 dark:text-white">৳ {formatNumber(selectedGoal.targetAmount, lang)}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'জমা হয়েছে' : 'Saved'}</span>
+                  <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">৳ {formatNumber(selectedGoal.savedAmount || 0, lang)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  triggerHaptic('double');
+                  await updateGoalStatus(selectedGoal.id, 'active');
+                  setSelectedGoal(prev => prev ? { ...prev, status: 'active' } : null);
+                  setShowReactivateConfirm(false);
+                  toast.success(lang === 'bn' ? 'লক্ষ্যটি সফলভাবে পুনরায় চালু করা হয়েছে' : 'Goal reactivated successfully');
+                }}
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl cursor-pointer transition-colors"
+              >
+                {lang === 'bn' ? 'হ্যাঁ, পুনরায় চালু করুন' : 'Yes, Reactivate Goal'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowReactivateConfirm(false)}
+                className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer transition-colors"
+              >
+                {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* ── 2. CUSTOM CANCEL CONFIRMATION POPUP (LEARNED FROM MOVE CUSTOMER TO TRASH) ── */}
       {showCancelConfirm && selectedGoal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-reveal">
-          <div className="absolute inset-0" onClick={() => setShowCancelConfirm(false)} />
-          
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-850 w-full max-w-xs rounded-3xl shadow-2xl p-5 relative z-10 space-y-4 animate-scaleIn text-center">
-            <div className="flex flex-col items-center gap-2">
-              <AlertCircle className="w-12 h-12 text-[#ec003f] stroke-[2]" />
-              <h3 className="text-base font-black text-zinc-900 dark:text-white leading-snug">
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 animate-reveal"
+          onClick={() => setShowCancelConfirm(false)}
+        >
+          <motion.div
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white dark:bg-zinc-900 w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
+          >
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-8 h-8 text-amber-600 dark:text-amber-500" />
+              </div>
+              <h3 className="text-lg font-black text-amber-600 dark:text-amber-500 mb-2">
                 {lang === 'bn' ? 'লক্ষ্য বাতিল নিশ্চিতকরণ' : 'Confirm Goal Cancellation'}
               </h3>
-              <p className="text-xs text-zinc-550 dark:text-zinc-400 font-semibold leading-relaxed mt-1">
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
                 {lang === 'bn' 
                   ? 'আপনি কি নিশ্চিতভাবে এই লক্ষ্যটি বাতিল করতে চান? এটি আর্কাইভে সংরক্ষিত থাকবে।' 
                   : 'Are you sure you want to cancel this goal? It will be moved to History.'}
               </p>
+              
+              {/* Details Card */}
+              <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 text-left space-y-2.5 mt-4">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'লক্ষ্য' : 'Goal'}</span>
+                  <span className="text-sm font-extrabold text-zinc-850 dark:text-zinc-150 truncate max-w-[200px]">{selectedGoal.title}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'ধরন' : 'Type'}</span>
+                  <span className="text-xs font-extrabold text-zinc-700 dark:text-zinc-300">{selectedGoal.type === 'savings' ? t.savings : t.deposit}</span>
+                </div>
+                {selectedGoal.customerName && (
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'গ্রাহক' : 'Customer'}</span>
+                    <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">{selectedGoal.customerName}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'লক্ষ্যমাত্রা' : 'Target'}</span>
+                  <span className="text-sm font-black text-zinc-900 dark:text-white">৳ {formatNumber(selectedGoal.targetAmount, lang)}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'জমা হয়েছে' : 'Saved'}</span>
+                  <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">৳ {formatNumber(selectedGoal.savedAmount || 0, lang)}</span>
+                </div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => { triggerHaptic('single'); setShowCancelConfirm(false); }}
-                className="py-2.5 px-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-850 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
-              >
-                {lang === 'bn' ? 'না, ফেরত যান' : 'No, Go Back'}
-              </button>
+            <div className="flex flex-col gap-3">
               <button
                 type="button"
                 onClick={async () => {
@@ -937,41 +1299,75 @@ export default function GoalsManager({
                   setSelectedGoal(null);
                   toast.success(lang === 'bn' ? 'লক্ষ্যটি বাতিল করা হয়েছে' : 'Goal cancelled');
                 }}
-                className="py-2.5 px-4 bg-[#ec003f] hover:bg-[#d40038] text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                className="w-full py-4 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl cursor-pointer transition-colors"
               >
-                {lang === 'bn' ? 'হ্যাঁ, বাতিল করুন' : 'Yes, Cancel'}
+                {lang === 'bn' ? 'হ্যাঁ, বাতিল করুন' : 'Yes, Cancel Goal'}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── CUSTOM DELETE CONFIRMATION POPUP ── */}
-      {showDeleteConfirm && selectedGoal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-reveal">
-          <div className="absolute inset-0" onClick={() => setShowDeleteConfirm(false)} />
-          
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-850 w-full max-w-xs rounded-3xl shadow-2xl p-5 relative z-10 space-y-4 animate-scaleIn text-center">
-            <div className="flex flex-col items-center gap-2">
-              <Trash2 className="w-12 h-12 text-[#ec003f] stroke-[2]" />
-              <h3 className="text-base font-black text-zinc-900 dark:text-white leading-snug">
-                {lang === 'bn' ? 'লক্ষ্য ডিলিট নিশ্চিতকরণ' : 'Confirm Goal Deletion'}
-              </h3>
-              <p className="text-xs text-zinc-550 dark:text-zinc-400 font-semibold leading-relaxed mt-1">
-                {lang === 'bn' 
-                  ? 'আপনি কি নিশ্চিতভাবে এই লক্ষ্যটি ডিলিট করতে চান? এর কিস্তির সকল তথ্য চিরতরে মুছে যাবে।' 
-                  : 'Are you sure you want to delete this goal? All contribution logs will be permanently deleted.'}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => { triggerHaptic('single'); setShowDeleteConfirm(false); }}
-                className="py-2.5 px-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-850 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                onClick={() => setShowCancelConfirm(false)}
+                className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer transition-colors"
               >
                 {lang === 'bn' ? 'না, ফেরত যান' : 'No, Go Back'}
               </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* ── 2. CUSTOM DELETE CONFIRMATION POPUP (LEARNED FROM MOVE CUSTOMER TO TRASH) ── */}
+      {showDeleteConfirm && selectedGoal && (
+        <div 
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 animate-reveal"
+          onClick={() => setShowDeleteConfirm(false)}
+        >
+          <motion.div
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white dark:bg-zinc-900 w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
+          >
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-8 h-8 text-[#e0385e]" />
+              </div>
+              <h3 className="text-lg font-black text-[#e0385e] mb-2">
+                {lang === 'bn' ? 'লক্ষ্য স্থায়ীভাবে মুছুন' : 'Delete Goal Permanently'}
+              </h3>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                {lang === 'bn' 
+                  ? 'আপনি কি নিশ্চিত এই লক্ষ্যটি চিরতরে মুছে ফেলতে চান? এর কিস্তির সকল তথ্য চিরতরে মুছে যাবে।' 
+                  : 'Are you sure you want to delete this goal permanently? All contribution records will be permanently lost.'}
+              </p>
+              
+              {/* Details Card */}
+              <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 text-left space-y-2.5 mt-4">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'লক্ষ্য' : 'Goal'}</span>
+                  <span className="text-sm font-extrabold text-zinc-850 dark:text-zinc-150 truncate max-w-[200px]">{selectedGoal.title}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'ধরন' : 'Type'}</span>
+                  <span className="text-xs font-extrabold text-zinc-700 dark:text-zinc-300">{selectedGoal.type === 'savings' ? t.savings : t.deposit}</span>
+                </div>
+                {selectedGoal.customerName && (
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'গ্রাহক' : 'Customer'}</span>
+                    <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">{selectedGoal.customerName}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'লক্ষ্যমাত্রা' : 'Target'}</span>
+                  <span className="text-sm font-black text-zinc-900 dark:text-white">৳ {formatNumber(selectedGoal.targetAmount, lang)}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'জমা হয়েছে' : 'Saved'}</span>
+                  <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">৳ {formatNumber(selectedGoal.savedAmount || 0, lang)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3">
               <button
                 type="button"
                 onClick={async () => {
@@ -981,12 +1377,19 @@ export default function GoalsManager({
                   setSelectedGoal(null);
                   toast.success(lang === 'bn' ? 'লক্ষ্যটি মুছে ফেলা হয়েছে' : 'Goal deleted successfully');
                 }}
-                className="py-2.5 px-4 bg-[#ec003f] hover:bg-[#d40038] text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                className="w-full py-4 bg-[#e0385e] hover:bg-[#c92a4f] text-white font-bold rounded-xl cursor-pointer transition-colors"
               >
-                {lang === 'bn' ? 'হ্যাঁ, ডিলিট করুন' : 'Yes, Delete'}
+                {lang === 'bn' ? 'হ্যাঁ, স্থায়ীভাবে মুছুন' : 'Yes, Delete Permanently'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer transition-colors"
+              >
+                {lang === 'bn' ? 'বাতিল' : 'Cancel'}
               </button>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
     </div>

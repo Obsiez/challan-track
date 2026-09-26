@@ -1456,8 +1456,8 @@ if (sortBy === 'custom') {
         onClick={() => { triggerHaptic('single'); setFilterStatus('due'); }}
         className={`px-3.5 py-2 rounded-xl font-bold text-sm transition-colors shrink-0 cursor-pointer ${
           filterStatus === 'due'
-            ? 'bg-[#ec003f] text-white shadow-sm border border-[#ec003f]'
-            : 'bg-white text-[#ec003f] border border-[#ec003f]/30 dark:bg-zinc-900 dark:border-[#ec003f]/30 dark:text-[#ec003f] hover:bg-[#ec003f]/10 dark:hover:bg-[#ec003f]/10'
+            ? 'bg-[#e0385e] text-white shadow-sm border border-[#e0385e]'
+            : 'bg-white text-[#e0385e] border border-[#e0385e]/30 dark:bg-zinc-900 dark:border-[#e0385e]/30 dark:text-[#e0385e] hover:bg-[#e0385e]/10 dark:hover:bg-[#e0385e]/10'
         }`}
       >
         {lang === 'bn' ? 'বকেয়া খতিয়ান' : 'Has Outstanding'} ({formatNumber(customers.filter(c => c.outstandingDue > 0).length, lang)})
@@ -1643,7 +1643,7 @@ if (sortBy === 'custom') {
  					<div className="min-w-0 pr-1">
  						<div className={`text-xl font-black truncate ${
  							c.outstandingDue > 0
- 								? 'text-[#ec003f]'
+ 								? 'text-[#e0385e]'
  								: c.outstandingDue < 0
  									? 'text-[#00d3f2]'
  									: 'text-emerald-700 dark:text-emerald-400'
@@ -1862,7 +1862,7 @@ if (sortBy === 'custom') {
  <span className="text-2xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block">{t.currentBalance}</span>
  <span className={`text-2xl font-black mt-1 ${
  selectedCustomer.outstandingDue > 0 
- ? 'text-[#ec003f]' 
+ ? 'text-[#e0385e]' 
  : selectedCustomer.outstandingDue < 0 
  ? 'text-[#00d3f2]' 
  : 'text-emerald-700 dark:text-emerald-400'
@@ -2613,7 +2613,7 @@ if (sortBy === 'custom') {
               <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'বর্তমান ব্যালেন্স' : 'Current Balance'}</span>
               <span className={`text-sm font-black ${
                 deletingCustomer.outstandingDue > 0
-                  ? 'text-[#ec003f]'
+                  ? 'text-[#e0385e]'
                   : deletingCustomer.outstandingDue < 0
                   ? 'text-[#00d3f2]' 
                   : 'text-zinc-500'

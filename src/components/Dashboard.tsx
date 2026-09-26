@@ -168,7 +168,7 @@ export default function Dashboard({
  >
  <div className="space-y-1">
  <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">{t.duesToday}</span>
- <div className="text-3xl font-extrabold text-[#ec003f]">
+ <div className="text-3xl font-extrabold text-[#e0385e]">
  ৳ {formatNumber(stats.duesToday, lang)}
  </div>
  <span className="text-xs text-zinc-500 dark:text-zinc-400">{lang === 'bn' ? 'আজকের বাকি প্রদান' : 'Credit sales logged'}</span>

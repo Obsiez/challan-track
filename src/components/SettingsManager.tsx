@@ -603,7 +603,7 @@ export default function SettingsManager({
                   </div>
                   <div className={`text-base font-black ${
                     c.outstandingDue > 0 
-                      ? 'text-[#ec003f]' 
+                      ? 'text-[#e0385e]' 
                       : c.outstandingDue < 0 
                         ? 'text-[#00d3f2]' 
                         : 'text-zinc-400 dark:text-zinc-500'
@@ -710,7 +710,7 @@ export default function SettingsManager({
                 <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'বর্তমান ব্যালেন্স' : 'Current Balance'}</span>
                 <span className={"text-sm font-black " + (
                   confirmAction.customer.outstandingDue > 0 
-                    ? 'text-[#ec003f]' 
+                    ? 'text-[#e0385e]' 
                     : confirmAction.customer.outstandingDue < 0 
                       ? 'text-[#00d3f2]' 
                       : 'text-zinc-500'
