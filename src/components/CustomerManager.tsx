@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useAnimation } from 'motion/react';
-import { getPhoneticKey } from '../lib/phonetics';
+import { getPhoneticKey, matchesPhonetic } from '../lib/phonetics';
 import { translations, formatNumber, formatIndianNumberString, Language } from '../lib/translations';
 import { triggerHaptic } from '../lib/haptics';
 
@@ -673,10 +673,7 @@ const [editingTx, setEditingTx] = useState<Transaction | null>(null);
       // Basic query match and phonetic matching (English-Bangla)
       const queryMatch = c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          c.phone.includes(searchQuery) ||
-                         (() => {
-                           const pq = getPhoneticKey(searchQuery);
-                           return pq.length > 0 && getPhoneticKey(c.name).includes(pq);
-                         })();
+                         matchesPhonetic(c.name, searchQuery);
       if (!queryMatch) return false;
 
       // Filter status categories
@@ -787,6 +784,10 @@ if (sortBy === 'custom') {
     const customerPhone = selectedCustomer.phone || (lang === 'bn' ? 'প্রযোজ্য নয়' : 'N/A');
     const outstandingDue = selectedCustomer.outstandingDue;
     
+    // PDF document file name prefix
+    const cleanPrefix = customerName.replace(/[^\w\u0980-\u09FF]/g, '_').replace(/_+/g, '_').trim() || 'Customer';
+    const docTitle = `${cleanPrefix}_Receipt.pdf`;
+    
     const totalDuesCalculated = selectedCustomerTransactions
       .filter(tx => tx.type === 'due')
       .reduce((sum, tx) => sum + tx.amount, 0);
@@ -797,42 +798,45 @@ if (sortBy === 'custom') {
 
     const rowsHtml = selectedCustomerTransactions.map((tx, idx) => {
       const txDate = parseFirestoreDate(tx.date);
-      const dateStr = txDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const dateStr = txDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: '2-digit', year: '2-digit' });
       const timeStr = txDate.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' });
       const isDue = tx.type === 'due';
-      const typeStr = isDue ? (lang === 'bn' ? 'বকেয়া' : 'Due') : (lang === 'bn' ? 'পরিশোধ' : 'Payment');
+      const typeStr = isDue ? (lang === 'bn' ? 'বকেয়া' : 'DUE') : (lang === 'bn' ? 'জমা' : 'PAID');
       const amountStr = `৳ ${formatNumber(tx.amount, lang)}`;
-      const typeClass = isDue ? 'tx-due' : 'tx-payment';
       const sign = isDue ? '+' : '-';
+      const desc = tx.description ? tx.description.trim() : (lang === 'bn' ? 'সাধারণ এন্ট্রি' : 'General entry');
       
       return `
-        <tr>
-          <td class="col-num">${idx + 1}</td>
-          <td class="col-date">${dateStr}<div class="time-sub">${timeStr}</div></td>
-          <td class="col-desc">${tx.description || (lang === 'bn' ? 'নিয়মিত হিসাব' : 'General entry')}</td>
-          <td class="col-type"><span class="badge ${typeClass}">${typeStr}</span></td>
-          <td class="col-amt ${typeClass}">${sign} ${amountStr}</td>
-        </tr>
+        <div class="pos-item">
+          <div class="pos-item-top">
+            <span class="pos-item-date">${dateStr} ${timeStr}</span>
+            <span class="pos-item-type ${isDue ? 'type-due' : 'type-paid'}">${typeStr}</span>
+            <span class="pos-item-amt ${isDue ? 'amt-due' : 'amt-paid'}">${sign} ${amountStr}</span>
+          </div>
+          <div class="pos-item-desc">${desc}</div>
+        </div>
       `;
     }).join('');
     
     const isSettled = outstandingDue === 0;
     const isDue = outstandingDue > 0;
     const statusText = isDue 
-      ? (lang === 'bn' ? 'বকেয়া পাওনা' : 'Outstanding Balance') 
+      ? (lang === 'bn' ? '[ বকেয়া ]' : '[ OUTSTANDING DUE ]') 
       : (!isSettled 
-        ? (lang === 'bn' ? 'অগ্রিম জমা' : 'Credit Surplus') 
-        : (lang === 'bn' ? 'পরিশোধিত' : 'Fully Settled'));
+        ? (lang === 'bn' ? '[ অতিরিক্ত জমা ]' : '[ CREDIT SURPLUS ]') 
+        : (lang === 'bn' ? '[ সম্পূর্ণ পরিশোধিত ]' : '[ FULLY SETTLED ]'));
         
-    const statusBadgeClass = isDue ? 'status-due' : (!isSettled ? 'status-credit' : 'status-settled');
+    const statusClass = isDue ? 'status-due' : (!isSettled ? 'status-credit' : 'status-settled');
     const balanceAmountDisplay = isSettled 
       ? '৳ 0' 
       : `${outstandingDue < 0 ? '-' : ''}৳ ${formatNumber(Math.abs(outstandingDue), lang)}`;
 
-    const statementTitle = lang === 'bn' ? 'হিসাব বিবরণী ও লেনদেন রসিদ' : 'ACCOUNT STATEMENT RECEIPT';
-    const refNum = `CT-${selectedCustomer.id.slice(-6).toUpperCase()}-${Date.now().toString().slice(-4)}`;
-    const nowStr = new Date().toLocaleString(lang === 'bn' ? 'bn-BD' : 'en-US', { 
-      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' 
+    const slipNo = `CT-${selectedCustomer.id.slice(-6).toUpperCase()}`;
+    const nowStr = new Date().toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { 
+      day: '2-digit', month: 'short', year: 'numeric'
+    });
+    const nowTimeStr = new Date().toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', {
+      hour: '2-digit', minute: '2-digit'
     });
 
     const reportHtml = `
@@ -840,333 +844,314 @@ if (sortBy === 'custom') {
       <html>
       <head>
         <meta charset="utf-8" />
-        <title>${customerName} - ${lang === 'bn' ? 'স্টেটমেন্ট' : 'Statement'}</title>
+        <title>${docTitle}</title>
         <style>
           @page {
-            size: A4;
-            margin: 15mm 12mm;
+            size: 80mm auto;
+            margin: 0;
           }
           * {
             box-sizing: border-box;
-          }
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            color: #18181b;
-            background: #ffffff;
-            margin: 0;
-            padding: 24px;
-            font-size: 13px;
-            line-height: 1.5;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
-          .receipt-container {
-            max-width: 640px;
-            margin: 0 auto;
-          }
-          .bank-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            border-bottom: 1.5px solid #18181b;
-            padding-bottom: 14px;
-            margin-bottom: 20px;
-          }
-          .brand-name {
-            font-size: 16px;
-            font-weight: 900;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            color: #09090b;
-          }
-          .brand-sub {
-            font-size: 10px;
-            font-weight: 600;
-            color: #71717a;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            margin-top: 2px;
-          }
-          .meta-side {
-            text-align: right;
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+            font-family: 'SF Mono', 'Roboto Mono', 'Courier Prime', Courier, 'Courier New', 'SolaimanLipi', 'Noto Sans Bengali', monospace;
+            color: #000000;
             font-size: 11px;
-            color: #71717a;
-            line-height: 1.4;
+            line-height: 1.35;
           }
-          .meta-ref {
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-            font-weight: 700;
-            color: #27272a;
-          }
-          .account-banner {
-            border: 1px solid #e4e4e7;
-            border-radius: 8px;
-            padding: 16px 20px;
-            margin-bottom: 20px;
-            background-color: #fafafa;
+          body {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            justify-content: center;
           }
-          .account-info-col {
-            flex: 1;
-          }
-          .account-label {
-            font-size: 10px;
-            text-transform: uppercase;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            color: #71717a;
-            margin-bottom: 3px;
-          }
-          .account-name {
-            font-size: 17px;
-            font-weight: 800;
-            color: #09090b;
-          }
-          .account-phone {
-            font-size: 12px;
-            color: #52525b;
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-            margin-top: 2px;
-          }
-          .balance-badge-col {
-            text-align: right;
-          }
-          .balance-val {
-            font-size: 22px;
-            font-weight: 900;
-            color: #09090b;
-            letter-spacing: -0.5px;
-          }
-          .status-tag {
-            display: inline-block;
-            margin-top: 4px;
-            font-size: 10px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding: 3px 8px;
-            border-radius: 4px;
-          }
-          .status-due {
-            background-color: #fef2f2;
-            color: #b91c1c;
-            border: 1px solid #fecaca;
-          }
-          .status-credit {
-            background-color: #eff6ff;
-            color: #1d4ed8;
-            border: 1px solid #bfdbfe;
-          }
-          .status-settled {
-            background-color: #f0fdf4;
-            color: #15803d;
-            border: 1px solid #bbf7d0;
-          }
-          .financial-summary {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            border: 1px solid #e4e4e7;
-            border-radius: 6px;
-            margin-bottom: 22px;
-            overflow: hidden;
-          }
-          .fin-cell {
-            padding: 10px 14px;
+          .receipt-paper {
+            width: 76mm;
+            padding: 8mm 4mm 10mm 4mm;
             background: #ffffff;
           }
-          .fin-cell:first-child {
-            border-right: 1px solid #e4e4e7;
-          }
-          .fin-label {
-            font-size: 10px;
-            font-weight: 700;
-            text-transform: uppercase;
-            color: #71717a;
-            margin-bottom: 2px;
-          }
-          .fin-amount {
-            font-size: 14px;
-            font-weight: 800;
-          }
-          .fin-due {
-            color: #b91c1c;
-          }
-          .fin-paid {
-            color: #15803d;
-          }
-          .table-header-title {
-            font-size: 11px;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            color: #52525b;
-            margin-bottom: 8px;
-          }
-          table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 12px;
-          }
-          th {
-            background-color: #f4f4f5;
-            color: #52525b;
-            text-transform: uppercase;
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-            padding: 8px 10px;
-            text-align: left;
-            border-top: 1px solid #e4e4e7;
-            border-bottom: 1px solid #e4e4e7;
-          }
-          td {
-            padding: 9px 10px;
-            border-bottom: 1px solid #f4f4f5;
-            vertical-align: middle;
-          }
-          tr:last-child td {
-            border-bottom: 1px solid #e4e4e7;
-          }
-          .col-num {
-            width: 6%;
-            color: #a1a1aa;
-            font-size: 11px;
-          }
-          .col-date {
-            width: 26%;
-            font-weight: 600;
-            color: #27272a;
-          }
-          .time-sub {
-            font-size: 10px;
-            color: #a1a1aa;
-            font-weight: normal;
-          }
-          .col-desc {
-            width: 38%;
-            color: #3f3f46;
-          }
-          .col-type {
-            width: 14%;
+          .pos-center {
             text-align: center;
           }
-          .col-amt {
-            width: 16%;
-            text-align: right;
-            font-weight: 800;
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          .pos-bold {
+            font-weight: 900;
           }
-          .badge {
-            font-size: 9px;
-            font-weight: 800;
+          .brand-title {
+            font-size: 15px;
+            font-weight: 900;
+            letter-spacing: 1.5px;
             text-transform: uppercase;
-            padding: 2px 6px;
-            border-radius: 3px;
+            margin-bottom: 2px;
           }
-          .tx-due {
-            color: #b91c1c;
+          .brand-tagline {
+            font-size: 9px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: #333333;
+            margin-bottom: 6px;
           }
-          .tx-payment {
-            color: #15803d;
+          .receipt-cut {
+            border: none;
+            border-top: 1px dashed #000000;
+            margin: 6px 0;
           }
-          .badge.tx-due {
-            background: #fef2f2;
-            color: #b91c1c;
+          .receipt-double {
+            border: none;
+            border-top: 2px solid #000000;
+            margin: 6px 0;
           }
-          .badge.tx-payment {
-            background: #f0fdf4;
-            color: #15803d;
-          }
-          .receipt-footer {
-            margin-top: 28px;
-            padding-top: 14px;
-            border-top: 1px dashed #d4d4d8;
+          .meta-row {
             display: flex;
             justify-content: space-between;
-            align-items: center;
             font-size: 10px;
-            color: #71717a;
+            margin: 2px 0;
           }
-          .receipt-footer-left {
-            line-height: 1.4;
-          }
-          .receipt-footer-right {
-            text-align: right;
+          .meta-label {
+            color: #444444;
             font-weight: 700;
-            color: #52525b;
+          }
+          .meta-value {
+            font-weight: 800;
+            text-align: right;
+          }
+          .table-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            font-weight: 900;
+            text-transform: uppercase;
+            padding: 3px 0;
+            border-top: 1px solid #000000;
+            border-bottom: 1px solid #000000;
+            margin: 6px 0 4px 0;
+          }
+          .pos-item {
+            padding: 4px 0;
+            border-bottom: 1px dotted #bbbbbb;
+          }
+          .pos-item-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 10.5px;
+          }
+          .pos-item-date {
+            font-weight: 600;
+            color: #333333;
+            font-size: 9.5px;
+          }
+          .pos-item-type {
+            font-weight: 900;
+            font-size: 9px;
+            padding: 1px 4px;
+            border-radius: 2px;
+          }
+          .type-due {
+            border: 1px solid #000000;
+          }
+          .type-paid {
+            background: #000000;
+            color: #ffffff;
+          }
+          .pos-item-amt {
+            font-weight: 900;
+            font-size: 11px;
+            text-align: right;
+          }
+          .pos-item-desc {
+            font-size: 9.5px;
+            color: #555555;
+            margin-top: 1px;
+            padding-left: 2px;
+            font-style: italic;
+          }
+          .summary-section {
+            margin-top: 6px;
+          }
+          .summary-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10.5px;
+            margin: 3px 0;
+          }
+          .summary-row.total-due {
+            font-weight: 800;
+          }
+          .summary-row.total-paid {
+            font-weight: 800;
+          }
+          .net-balance-box {
+            border: 1.5px solid #000000;
+            padding: 8px 6px;
+            margin: 8px 0;
+            text-align: center;
+            background: #fafafa;
+          }
+          .net-balance-label {
+            font-size: 9px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+          }
+          .net-balance-amount {
+            font-size: 19px;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+            margin: 2px 0;
+          }
+          .net-balance-status {
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 0.5px;
+          }
+          .barcode-container {
+            margin: 14px 0 6px 0;
+            text-align: center;
+          }
+          .barcode-strip {
+            display: inline-flex;
+            gap: 1.5px;
+            height: 24px;
+            align-items: stretch;
+            justify-content: center;
+          }
+          .barcode-strip span {
+            background: #000000;
+            display: inline-block;
+          }
+          .barcode-num {
+            font-size: 9px;
+            letter-spacing: 2px;
+            font-weight: 700;
+            margin-top: 3px;
+          }
+          .footer-note {
+            font-size: 8.5px;
+            text-align: center;
+            color: #444444;
+            line-height: 1.35;
+            margin-top: 8px;
+            text-transform: uppercase;
           }
           @media print {
             body {
               padding: 0;
             }
+            .receipt-paper {
+              width: 100% !important;
+              padding: 4mm 2mm !important;
+            }
           }
         </style>
       </head>
       <body>
-        <div class="receipt-container">
-          <div class="bank-header">
-            <div>
-              <div class="brand-name">Challan Track</div>
-              <div class="brand-sub">${statementTitle}</div>
+        <div class="receipt-paper">
+          <!-- TOP TEAR LINE -->
+          <div class="receipt-cut"></div>
+          
+          <!-- BRAND & HEADER -->
+          <div class="pos-center">
+            <div class="brand-title">CHALLAN TRACK</div>
+            <div class="brand-tagline">${lang === 'bn' ? 'ডিজিটাল হিসাব খতিয়ান রসিদ' : 'TRANSACTION MEMO / RECEIPT'}</div>
+            <div style="font-size: 9px; font-weight: 700;">* CUSTOMER ACCOUNT SLIP *</div>
+          </div>
+          
+          <div class="receipt-double"></div>
+          
+          <!-- METADATA -->
+          <div class="meta-row">
+            <span class="meta-label">${lang === 'bn' ? 'রসিদ নং' : 'SLIP NO'}:</span>
+            <span class="meta-value">${slipNo}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">${lang === 'bn' ? 'তারিখ ও সময়' : 'DATE & TIME'}:</span>
+            <span class="meta-value">${nowStr}  ${nowTimeStr}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">${lang === 'bn' ? 'গ্রাহকের নাম' : 'CLIENT'}:</span>
+            <span class="meta-value">${customerName}</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">${lang === 'bn' ? 'মোবাইল' : 'PHONE'}:</span>
+            <span class="meta-value">${customerPhone}</span>
+          </div>
+          
+          <!-- TABLE HEADER -->
+          <div class="table-header">
+            <span>${lang === 'bn' ? 'তারিখ / বিবরণ' : 'DATE / ITEM'}</span>
+            <span>${lang === 'bn' ? 'ধরন' : 'TYPE'}</span>
+            <span>${lang === 'bn' ? 'টাকা' : 'AMOUNT'}</span>
+          </div>
+          
+          <!-- TRANSACTION ITEMS -->
+          ${rowsHtml}
+          
+          <div class="receipt-double"></div>
+          
+          <!-- TOTALS SUMMARY -->
+          <div class="summary-section">
+            <div class="summary-row total-due">
+              <span>${lang === 'bn' ? 'মোট বকেয়া যুক্ত' : 'TOTAL DUES BILLED'}:</span>
+              <span>+ ৳ ${formatNumber(totalDuesCalculated, lang)}</span>
             </div>
-            <div class="meta-side">
-              <div>Ref: <span class="meta-ref">${refNum}</span></div>
-              <div>Date: ${nowStr}</div>
+            <div class="summary-row total-paid">
+              <span>${lang === 'bn' ? 'মোট জমা / পরিশোধ' : 'TOTAL PAID / RECEIVED'}:</span>
+              <span>- ৳ ${formatNumber(totalPaymentsCalculated, lang)}</span>
             </div>
           </div>
-
-          <div class="account-banner">
-            <div class="account-info-col">
-              <div class="account-label">${lang === 'bn' ? 'গ্রাহক / হিসাবধারী' : 'ACCOUNT HOLDER'}</div>
-              <div class="account-name">${customerName}</div>
-              <div class="account-phone">${customerPhone}</div>
-            </div>
-            <div class="balance-badge-col">
-              <div class="account-label">${lang === 'bn' ? 'বর্তমান মোট স্থিতি' : 'NET BALANCE'}</div>
-              <div class="balance-val">${balanceAmountDisplay}</div>
-              <span class="status-tag ${statusBadgeClass}">${statusText}</span>
-            </div>
+          
+          <!-- NET BALANCE BOX -->
+          <div class="net-balance-box">
+            <div class="net-balance-label">${lang === 'bn' ? 'বর্তমান মোট স্থিতি' : 'CURRENT NET BALANCE'}</div>
+            <div class="net-balance-amount">${balanceAmountDisplay}</div>
+            <div class="net-balance-status">${statusText}</div>
           </div>
-
-          <div class="financial-summary">
-            <div class="fin-cell">
-              <div class="fin-label">${lang === 'bn' ? 'মোট নতুন পাওনা' : 'TOTAL DUES BILLED'}</div>
-              <div class="fin-amount fin-due">+ ৳ ${formatNumber(totalDuesCalculated, lang)}</div>
+          
+          <div class="receipt-double"></div>
+          
+          <!-- BARCODE STRIP -->
+          <div class="barcode-container">
+            <div class="barcode-strip">
+              <span style="width: 2px;"></span>
+              <span style="width: 1px;"></span>
+              <span style="width: 3px;"></span>
+              <span style="width: 1px;"></span>
+              <span style="width: 4px;"></span>
+              <span style="width: 2px;"></span>
+              <span style="width: 1px;"></span>
+              <span style="width: 3px;"></span>
+              <span style="width: 2px;"></span>
+              <span style="width: 1px;"></span>
+              <span style="width: 4px;"></span>
+              <span style="width: 1px;"></span>
+              <span style="width: 2px;"></span>
+              <span style="width: 3px;"></span>
+              <span style="width: 1px;"></span>
+              <span style="width: 4px;"></span>
+              <span style="width: 2px;"></span>
+              <span style="width: 1px;"></span>
+              <span style="width: 3px;"></span>
+              <span style="width: 2px;"></span>
+              <span style="width: 1px;"></span>
+              <span style="width: 3px;"></span>
+              <span style="width: 2px;"></span>
+              <span style="width: 1px;"></span>
             </div>
-            <div class="fin-cell">
-              <div class="fin-label">${lang === 'bn' ? 'মোট উসুল / জমা' : 'TOTAL PAYMENTS RECEIVED'}</div>
-              <div class="fin-amount fin-paid">- ৳ ${formatNumber(totalPaymentsCalculated, lang)}</div>
-            </div>
+            <div class="barcode-num">*${slipNo}*</div>
           </div>
-
-          <div class="table-header-title">${lang === 'bn' ? 'লেনদেন বিবরণী (আইটেম তালিকা)' : 'ITEMIZED TRANSACTION LOG'}</div>
-          <table>
-            <thead>
-              <tr>
-                <th class="col-num">#</th>
-                <th class="col-date">${lang === 'bn' ? 'তারিখ ও সময়' : 'DATE & TIME'}</th>
-                <th class="col-desc">${lang === 'bn' ? 'বিবরণ' : 'DESCRIPTION'}</th>
-                <th class="col-type">${lang === 'bn' ? 'ধরন' : 'TYPE'}</th>
-                <th class="col-amt">${lang === 'bn' ? 'পরিমাণ' : 'AMOUNT'}</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-            </tbody>
-          </table>
-
-          <div class="receipt-footer">
-            <div class="receipt-footer-left">
-              <div>${lang === 'bn' ? 'চালান ট্র্যাক ডিজিটাল হিসাব খতিয়ান দ্বারা স্বয়ংক্রিয়ভাবে তৈরি।' : 'Digitally generated account statement issued via Challan Track.'}</div>
-              <div>${lang === 'bn' ? 'যেকোনো জিজ্ঞাসায় সরাসরি হিসাব পরিচালনাকারীর সাথে যোগাযোগ করুন।' : 'No physical signature is required for electronic validation.'}</div>
-            </div>
-            <div class="receipt-footer-right">
-              <div>CHALLAN TRACK</div>
-              <div style="font-size: 9px; color: #a1a1aa;">VERIFIED RECORD</div>
-            </div>
+          
+          <!-- FOOTER -->
+          <div class="footer-note">
+            <div>${lang === 'bn' ? '*** আমাদের সাথে লেনদেন করার জন্য ধন্যবাদ ***' : '*** THANK YOU FOR YOUR BUSINESS ***'}</div>
+            <div style="margin-top: 3px;">${lang === 'bn' ? 'চালান ট্র্যাক ডিজিটাল পিওএস রসিদ' : 'DIGITAL POS TRANSACTION SLIP'}</div>
+            <div style="font-size: 7.5px; color: #777777; margin-top: 2px;">VALID WITHOUT SIGNATURE • CHALLAN TRACK</div>
           </div>
+          
+          <!-- BOTTOM TEAR LINE -->
+          <div class="receipt-cut" style="margin-top: 8px;"></div>
         </div>
       </body>
       </html>
@@ -1658,10 +1643,10 @@ if (sortBy === 'custom') {
  					<div className="min-w-0 pr-1">
  						<div className={`text-xl font-black truncate ${
  							c.outstandingDue > 0
- 								? 'text-rose-700 dark:text-rose-500'
+ 								? 'text-rose-800 dark:text-rose-400'
  								: c.outstandingDue < 0
- 									? 'text-blue-500 dark:text-blue-400'
- 									: 'text-emerald-600 dark:text-emerald-400'
+ 									? 'text-sky-600 dark:text-sky-400'
+ 									: 'text-emerald-700 dark:text-emerald-400'
  						}`}>
  							{c.outstandingDue === 0 ? (
  								lang === 'bn' ? '৳ ০' : '৳ 0'
@@ -1877,10 +1862,10 @@ if (sortBy === 'custom') {
  <span className="text-2xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block">{t.currentBalance}</span>
  <span className={`text-2xl font-black mt-1 ${
  selectedCustomer.outstandingDue > 0 
- ? 'text-rose-700 dark:text-rose-500' 
+ ? 'text-rose-800 dark:text-rose-400' 
  : selectedCustomer.outstandingDue < 0 
- ? 'text-blue-500 dark:text-blue-400' 
- : 'text-emerald-600 dark:text-emerald-400'
+ ? 'text-sky-600 dark:text-sky-400' 
+ : 'text-emerald-700 dark:text-emerald-400'
  }`}>
  {selectedCustomer.outstandingDue === 0 ? t.settled : `৳ ${formatNumber(selectedCustomer.outstandingDue, lang)}`}
  </span>

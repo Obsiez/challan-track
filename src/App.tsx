@@ -16,7 +16,7 @@ import GoalsManager from './components/GoalsManager';
 import QuickEntryModal from './components/QuickEntryModal';
 import AnalyticsManager from './components/AnalyticsManager';
 import {
-  LayoutDashboard, Users, Bell, Settings, BookOpen, Clock, Globe, Plus, Moon, Sun, ArrowUpRight, ArrowDownLeft, ChevronRight, BarChart3, ArrowLeft, ClipboardList, Lock, Loader2, Calendar, PiggyBank, Vault
+  LayoutDashboard, Users, Bell, Settings, BookOpen, Clock, Globe, Plus, Moon, Sun, ArrowUpRight, ArrowDownLeft, ChevronRight, BarChart3, ArrowLeft, ClipboardList, Lock, Loader2, Calendar, PiggyBank, Goal
 } from 'lucide-react';
 import { showNotification } from './lib/notifications';
 import { motion, AnimatePresence } from 'motion/react';
@@ -592,38 +592,29 @@ export default function App() {
  {/* Dynamic Top App Header */}
  <header className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 py-3.5 px-4 sm:px-6 sticky top-0 z-30 shadow-md">
  <div className="max-w-6xl mx-auto flex items-center justify-between">
- <div className="flex items-center gap-3">
- <div className="w-10 h-10 rounded-xl bg-[#009966] flex items-center justify-center text-white shadow-md">
+ <div 
+   onClick={() => { triggerHaptic('single'); navigateTo('home'); }}
+   className="flex items-center gap-3 cursor-pointer group select-none active:scale-98 transition-transform"
+   role="button"
+   tabIndex={0}
+   title={lang === 'bn' ? 'ড্যাশবোর্ডে ফিরে যান' : 'Go to Dashboard'}
+ >
+ <div className="w-10 h-10 rounded-xl bg-[#009966] group-hover:bg-[#008855] flex items-center justify-center text-white shadow-md transition-colors">
  <BookOpen className="w-5 h-5 stroke-[2.5]" />
  </div>
- <h1 className="text-lg sm:text-xl font-black text-zinc-900 dark:text-white tracking-tight leading-tight">{t.appName}</h1>
+ <h1 className="text-lg sm:text-xl font-black text-zinc-900 dark:text-white tracking-tight leading-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">{t.appName}</h1>
  </div>
 
  <div className="flex items-center gap-2">
  {/* Reminders Header Action Button */}
  <button
  onClick={() => { triggerHaptic('single'); navigateTo('reminders'); }}
- className={`px-3.5 py-2 rounded-xl border transition-all cursor-pointer flex items-center gap-2 shadow-sm active:scale-95 ${
-   currentTab === 'reminders'
-     ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700 font-bold'
-     : 'bg-white dark:bg-zinc-800 border-zinc-250 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-750 hover:border-zinc-300'
- }`}
+ className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-all cursor-pointer"
  title={t.reminders}
  id="header_reminders_btn"
  >
- <div className={`p-1 rounded-lg ${
-   currentTab === 'reminders'
-     ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
-     : 'bg-zinc-100 dark:bg-zinc-700/60 text-zinc-600 dark:text-zinc-300'
- }`}>
-   <Bell className="w-3.5 h-3.5 stroke-[2.2]" />
- </div>
- <span className="text-xs font-bold">{t.reminders}</span>
- {reminders.filter(r => r.active).length > 0 && (
-   <span className="ml-0.5 px-1.5 py-0.2 bg-rose-500 text-white text-[10px] font-black rounded-full leading-none shadow-sm">
-     {reminders.filter(r => r.active).length}
-   </span>
- )}
+ <Bell className="w-4 h-4 stroke-[2.2]" />
+ <span>{t.reminders}</span>
  </button>
  </div>
  </div>
@@ -940,7 +931,7 @@ updateSettings={updateSettings}
  }`}
  id="nav_goals_tab"
  >
- <Vault className="w-6 h-6 stroke-[2]" />
+ <Goal className="w-6 h-6 stroke-[2]" />
  <span className="text-2xs font-semibold">{t.goals}</span>
  </button>
 

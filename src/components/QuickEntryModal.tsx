@@ -5,7 +5,7 @@ import { X, Search, UserPlus, Check, ArrowDownLeft, ArrowUpRight, ChevronLeft, A
 import { translations, formatNumber, formatIndianNumberString, Language } from '../lib/translations';
 import { triggerHaptic } from '../lib/haptics';
 import { toast } from 'sonner';
-import { getPhoneticKey } from '../lib/phonetics';
+import { getPhoneticKey, matchesPhonetic } from '../lib/phonetics';
 
 interface QuickEntryModalProps {
   isOpen: boolean;
@@ -135,10 +135,7 @@ export default function QuickEntryModal({
       : customers.filter(c => {
           return c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                  (c.phone && c.phone.includes(searchQuery)) ||
-                 (() => {
-                   const pq = getPhoneticKey(searchQuery);
-                   return pq.length > 0 && getPhoneticKey(c.name).includes(pq);
-                 })();
+                 matchesPhonetic(c.name, searchQuery);
         });
    return [...list].sort((a, b) => {
      const idxA = frozenCustomerOrder.indexOf(a.id);

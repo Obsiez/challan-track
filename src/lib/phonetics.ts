@@ -1,63 +1,153 @@
-export function getPhoneticKey(str: string): string {
-  // Convert to lowercase and normalize
-  str = str.toLowerCase();
-  
-  // Normalize Bengali 'y' character variations
-  str = str.replace(/য\u09bc/g, 'য়');
-  
-  // Replace English vowel combinations & duplicates
-  str = str.replace(/ee/g, 'i')
-           .replace(/oo/g, 'u')
-           .replace(/ph/g, 'f')
-           .replace(/gh/g, 'g')
-           .replace(/kh/g, 'k')
-           .replace(/sh/g, 's')
-           .replace(/ch/g, 'c')
-           .replace(/th/g, 't')
-           .replace(/dh/g, 'd')
-           .replace(/bh/g, 'b');
+/**
+ * High-precision Phonetic Engine for English-to-Bengali and Bengali-to-English Transliterated Search.
+ * Allows users to type in English (e.g. "rahim", "shakil", "tanvir", "mostafiz") to accurately find
+ * Bengali customer names (e.g. "রহিম", "শাকিল", "তানভীর", "মোস্তাফিজ") and vice-versa.
+ */
 
-  let result = '';
+const BANGLA_TO_LATIN_MAP: Record<string, string> = {
+  'অ': 'o', 'আ': 'a', 'া': 'a',
+  'ই': 'i', 'ঈ': 'i', 'ি': 'i', 'ী': 'i',
+  'উ': 'u', 'ঊ': 'u', 'ু': 'u', 'ূ': 'u',
+  'ঋ': 'ri', 'ৃ': 'ri',
+  'এ': 'e', 'ঐ': 'oi', 'ে': 'e', 'ৈ': 'oi',
+  'ও': 'o', 'ঔ': 'ou', 'ো': 'o', 'ৌ': 'ou',
+  'ক': 'k', 'খ': 'kh', 'গ': 'g', 'ঘ': 'gh', 'ঙ': 'ng',
+  'চ': 'ch', 'ছ': 'ch', 'জ': 'j', 'ঝ': 'jh', 'ঞ': 'n',
+  'ট': 't', 'ঠ': 'th', 'ড': 'd', 'ঢ': 'dh', 'ণ': 'n',
+  'ত': 't', 'থ': 'th', 'দ': 'd', 'ধ': 'dh', 'ন': 'n',
+  'প': 'p', 'ফ': 'f', 'ব': 'b', 'ভ': 'bh', 'ম': 'm',
+  'য': 'j', 'য়': 'y', 'য়': 'y',
+  'র': 'r', 'ড়': 'r', 'ঢ়': 'rh', 'ল': 'l',
+  'শ': 'sh', 'ষ': 'sh', 'স': 's', 'হ': 'h',
+  'ৎ': 't', 'ং': 'ng', 'ঃ': 'h', 'ঁ': '', '্': ''
+};
+
+const BANGLA_CONSONANTS = new Set([
+  'ক','খ','গ','ঘ','ঙ','চ','ছ','জ','ঝ','ঞ',
+  'ট','ঠ','ড','ঢ','ণ','ত','থ','দ','ধ','ন',
+  'প','ফ','ব','ভ','ম','য','র','ল','শ','ষ',
+  'স','হ','ড়','ঢ়','য়'
+]);
+
+const CONSONANT_MAP: Record<string, string> = {
+  // Bengali consonants normalized
+  'ক': 'k', 'খ': 'k', 'গ': 'g', 'ঘ': 'g', 'ঙ': 'n', 'ং': 'n',
+  'চ': 'c', 'ছ': 'c', 'জ': 'j', 'ঝ': 'j', 'ঞ': 'n',
+  'ট': 't', 'ঠ': 't', 'ড': 'd', 'ঢ': 'd', 'ণ': 'n',
+  'ত': 't', 'থ': 't', 'দ': 'd', 'ধ': 'd', 'ন': 'n',
+  'প': 'p', 'ফ': 'f', 'ব': 'b', 'ভ': 'b', 'ম': 'm',
+  'য': 'j', 'য়': 'y', 'য়': 'y',
+  'র': 'r', 'ড়': 'r', 'ঢ়': 'r', 'ল': 'l',
+  'শ': 's', 'ষ': 's', 'স': 's', 'হ': 'h',
+  'ৎ': 't',
+  // English consonants normalized
+  'k': 'k', 'g': 'g', 'c': 'c', 'j': 'j', 'z': 'j',
+  't': 't', 'd': 'd', 'n': 'n', 'p': 'p', 'f': 'f',
+  'b': 'b', 'v': 'b', 'm': 'm', 'r': 'r', 'l': 'l',
+  's': 's', 'h': 'h', 'w': 'w', 'y': 'y'
+};
+
+/**
+ * Transliterates Bengali unicode text to phonetically readable English/Latin.
+ * Correctly inserts inherent vowels ('a') between consecutive non-joined consonants.
+ */
+export function transliterateBanglaToLatin(str: string): string {
+  if (!str) return '';
+  str = str.toLowerCase()
+    .replace(/য\u09bc/g, 'য়')
+    .replace(/ড\u09bc/g, 'ড়')
+    .replace(/ঢ\u09bc/g, 'ঢ়');
+
+  let out = '';
   for (let i = 0; i < str.length; i++) {
-    const char = str[i];
-    
-    // Map Bengali consonants
-    if (/[ম]/i.test(char)) result += 'm';
-    else if (/[বভ]/i.test(char)) result += 'b';
-    else if (/[ত্থটঠদধডঢৎ]/i.test(char)) result += 'd'; // group all t/d sounds
-    else if (/[কখ]/i.test(char)) result += 'k';
-    else if (/[গঘ]/i.test(char)) result += 'g';
-    else if (/[চছ]/i.test(char)) result += 'c';
-    else if (/[জঝয]/i.test(char)) result += 'j';
-    else if (/[পফ]/i.test(char)) result += 'p';
-    else if (/[রলড়ঢ়]/i.test(char)) result += 'l'; // group r/l sounds
-    else if (/[সশষ]/i.test(char)) result += 's';
-    else if (/[নণংঞঙ]/i.test(char)) result += 'n';
-    else if (/[হ]/i.test(char)) result += 'h';
-    else if (/[ওয়য়]/i.test(char)) result += 'w';
-    
-    // Map English characters to normalized consonants
-    else if (/[m]/i.test(char)) result += 'm';
-    else if (/[bv]/i.test(char)) result += 'b';
-    else if (/[dt]/i.test(char)) result += 'd';
-    else if (/[kq]/i.test(char)) result += 'k';
-    else if (/[g]/i.test(char)) result += 'g';
-    else if (/[c]/i.test(char)) result += 'c';
-    else if (/[jz]/i.test(char)) result += 'j';
-    else if (/[pf]/i.test(char)) result += 'p';
-    else if (/[rl]/i.test(char)) result += 'l';
-    else if (/[s]/i.test(char)) result += 's';
-    else if (/[n]/i.test(char)) result += 'n';
-    else if (/[h]/i.test(char)) result += 'h';
-    else if (/[wy]/i.test(char)) result += 'w';
-  }
-  
-  // Remove adjacent duplicate sounds
-  let finalResult = '';
-  for (let i = 0; i < result.length; i++) {
-    if (i === 0 || result[i] !== result[i - 1]) {
-      finalResult += result[i];
+    const ch = str[i];
+    out += BANGLA_TO_LATIN_MAP[ch] !== undefined ? BANGLA_TO_LATIN_MAP[ch] : ch;
+    if (BANGLA_CONSONANTS.has(ch)) {
+      const next = str[i + 1];
+      if (next && BANGLA_CONSONANTS.has(next) && next !== '্') {
+        out += 'a';
+      }
     }
   }
-  return finalResult;
+  return out.toLowerCase();
+}
+
+/**
+ * Extracts a normalized consonant skeleton, filtering out vowels and merging equivalent sound pairs.
+ */
+export function normalizeConsonants(str: string): string {
+  if (!str) return '';
+  str = str.toLowerCase()
+    .replace(/য\u09bc/g, 'য়')
+    .replace(/ড\u09bc/g, 'ড়')
+    .replace(/ঢ\u09bc/g, 'ঢ়')
+    .replace(/kh/g, 'k')
+    .replace(/gh/g, 'g')
+    .replace(/ch/g, 'c')
+    .replace(/jh/g, 'j')
+    .replace(/th/g, 't')
+    .replace(/dh/g, 'd')
+    .replace(/ph/g, 'f')
+    .replace(/bh/g, 'b')
+    .replace(/sh/g, 's')
+    .replace(/ee/g, 'i')
+    .replace(/oo/g, 'u')
+    .replace(/qu/g, 'k')
+    .replace(/q/g, 'k');
+
+  let res = '';
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (CONSONANT_MAP[ch]) {
+      res += CONSONANT_MAP[ch];
+    }
+  }
+  return res.replace(/(.)\1+/g, '$1');
+}
+
+/**
+ * Full phonetic match evaluator between a candidate name and a search query.
+ * Evaluates transliterations, alternate vowels (o/a, ee/i, v/bh, etc.), and consonant sequences.
+ */
+export function matchesPhonetic(name: string, query: string): boolean {
+  if (!name || !query) return false;
+  name = name.toLowerCase().trim();
+  query = query.toLowerCase().trim();
+
+  // 1. Direct lowercase substring
+  if (name.includes(query)) return true;
+
+  // 2. Direct Latin transliteration match (e.g. 'রহিম' -> 'rahim' matches 'rah')
+  const latinName = transliterateBanglaToLatin(name);
+  if (latinName.includes(query)) return true;
+
+  // 3. Normalized query vs transliteration (handling digraphs like ee/i, oo/u, v/bh, z/j)
+  const normQuery = query
+    .replace(/ee/g, 'i')
+    .replace(/oo/g, 'u')
+    .replace(/v/g, 'bh')
+    .replace(/z/g, 'j')
+    .replace(/ph/g, 'f')
+    .replace(/qu/g, 'k')
+    .replace(/q/g, 'k');
+  if (latinName.includes(normQuery)) return true;
+
+  // 4. Inherent vowel 'o' <-> 'a' interchangeability check
+  const altLatinName = latinName.replace(/o/g, 'a');
+  const altQuery = normQuery.replace(/o/g, 'a');
+  if (altLatinName.includes(altQuery)) return true;
+
+  // 5. Consonant skeleton match (e.g. 'rohim' / 'rahim' -> 'rhm' vs 'rhm')
+  const qSkel = normalizeConsonants(query);
+  const nSkel = normalizeConsonants(name);
+  if (qSkel.length >= 2 && nSkel.includes(qSkel)) return true;
+
+  return false;
+}
+
+/**
+ * Backward-compatible helper that returns a phonetic key for legacy callers.
+ */
+export function getPhoneticKey(str: string): string {
+  return normalizeConsonants(str);
 }
