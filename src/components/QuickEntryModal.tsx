@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Customer, Transaction } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Search, UserPlus, Check, ArrowDownLeft, ArrowUpRight, ChevronLeft, AlertTriangle, Delete } from 'lucide-react';
+import { X, Search, UserPlus, Check, ArrowDownLeft, ArrowUpRight, ChevronLeft, AlertTriangle, Delete, BookUser } from 'lucide-react';
 import { translations, formatNumber, formatIndianNumberString, Language } from '../lib/translations';
 import { triggerHaptic } from '../lib/haptics';
 import { toast } from 'sonner';
@@ -97,6 +97,35 @@ export default function QuickEntryModal({
  }
  return () => { document.body.style.overflow = ''; };
  }, [isOpen]);
+
+ const handlePickContact = async () => {
+   if (typeof navigator !== 'undefined' && 'contacts' in navigator && (navigator as any).contacts?.select) {
+     try {
+       const props = ['name', 'tel'];
+       const options = { multiple: false };
+       const contacts = await (navigator as any).contacts.select(props, options);
+       if (contacts && contacts.length > 0) {
+         if (contacts[0].tel && contacts[0].tel.length > 0) {
+           const rawPhone = contacts[0].tel[0];
+           const cleaned = rawPhone.replace(/[^\d+]/g, '');
+           setCustomerPhoneInput(cleaned);
+         }
+         if (contacts[0].name && contacts[0].name.length > 0 && !customerNameInput.trim()) {
+           const rawName = contacts[0].name[0];
+           if (rawName) setCustomerNameInput(rawName);
+         }
+         triggerHaptic('single');
+       }
+     } catch (err) {
+       console.warn("Contact picker failed or was cancelled:", err);
+     }
+   } else {
+     triggerHaptic('double');
+     toast.info(lang === 'bn' 
+       ? 'কন্টাক্ট পিকারটি শুধুমাত্র সমর্থিত মোবাইল ব্রাউজারে উপলব্ধ।' 
+       : 'Contact picker is only supported on mobile browsers (like Chrome on Android).');
+   }
+ };
 
  // Handle customer selection list — order is frozen to the snapshot taken at modal open.
  // This prevents a just-confirmed customer from visibly jumping to the top mid-session.
@@ -436,13 +465,23 @@ export default function QuickEntryModal({
  </div>
  <div className="space-y-1">
  <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase">{t.phoneNumber}</label>
- <input
- type="tel"
- placeholder="e.g. 01712345678"
- value={customerPhoneInput}
- onChange={(e) => setCustomerPhoneInput(e.target.value)}
- className="w-full px-4 py-3 bg-[#009966]/5 dark:bg-[#009966]/5 border-2 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966] rounded-xl text-zinc-850 dark:text-white focus:outline-none transition-all"
- />
+ <div className="flex gap-2">
+   <input
+   type="tel"
+   placeholder="e.g. 01712345678"
+   value={customerPhoneInput}
+   onChange={(e) => setCustomerPhoneInput(e.target.value)}
+   className="flex-1 px-4 py-3 bg-[#009966]/5 dark:bg-[#009966]/5 border-2 border-[#009966]/30 focus:border-[#009966] dark:border-[#009966]/20 dark:focus:border-[#009966] rounded-xl text-zinc-850 dark:text-white focus:outline-none transition-all"
+   />
+   <button
+     type="button"
+     onClick={handlePickContact}
+     className="px-3.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-650 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-sm shrink-0"
+     title={lang === 'bn' ? 'কন্টাক্ট নির্বাচন করুন' : 'Pick Contact'}
+   >
+     <BookUser className="w-5 h-5" />
+   </button>
+ </div>
  </div>
  </div>
  )}

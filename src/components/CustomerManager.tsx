@@ -739,16 +739,22 @@ if (sortBy === 'custom') {
     return transactions.filter(t => t.customerId === selectedCustomerId);
   }, [transactions, selectedCustomerId]);
 
-  const handlePickContact = async (onPick: (phone: string) => void) => {
-    if ('contacts' in navigator && 'ContactsManager' in window) {
+  const handlePickContact = async (onPickPhone: (phone: string) => void, onPickName?: (name: string) => void) => {
+    if (typeof navigator !== 'undefined' && 'contacts' in navigator && (navigator as any).contacts?.select) {
       try {
-        const props = ['tel'];
+        const props = ['name', 'tel'];
         const options = { multiple: false };
         const contacts = await (navigator as any).contacts.select(props, options);
-        if (contacts && contacts.length > 0 && contacts[0].tel && contacts[0].tel.length > 0) {
-          const rawPhone = contacts[0].tel[0];
-          const cleaned = rawPhone.replace(/[^\d+]/g, '');
-          onPick(cleaned);
+        if (contacts && contacts.length > 0) {
+          if (contacts[0].tel && contacts[0].tel.length > 0) {
+            const rawPhone = contacts[0].tel[0];
+            const cleaned = rawPhone.replace(/[^\d+]/g, '');
+            onPickPhone(cleaned);
+          }
+          if (onPickName && contacts[0].name && contacts[0].name.length > 0) {
+            const rawName = contacts[0].name[0];
+            if (rawName) onPickName(rawName);
+          }
           triggerHaptic('single');
         }
       } catch (err) {
@@ -757,8 +763,8 @@ if (sortBy === 'custom') {
     } else {
       triggerHaptic('double');
       toast.info(lang === 'bn' 
-        ? 'কন্টাক্ট পিকিউরটি শুধুমাত্র মোবাইল ব্রাউজারে (যেমন ক্রোম/সাফারি) সমর্থিত।' 
-        : 'Contact picker is only supported on mobile browsers (like Chrome/Safari).');
+        ? 'কন্টাক্ট পিকারটি শুধুমাত্র মোবাইল ব্রাউজারে (যেমন ক্রোম) সমর্থিত।' 
+        : 'Contact picker is supported on mobile browsers (like Chrome on Android).');
     }
   };
 
@@ -778,36 +784,8 @@ if (sortBy === 'custom') {
     if (!doc) return;
     
     const customerName = selectedCustomer.name;
-    const customerPhone = selectedCustomer.phone || 'N/A';
+    const customerPhone = selectedCustomer.phone || (lang === 'bn' ? 'প্রযোজ্য নয়' : 'N/A');
     const outstandingDue = selectedCustomer.outstandingDue;
-    
-    const rowsHtml = selectedCustomerTransactions.map((tx, idx) => {
-      const txDate = parseFirestoreDate(tx.date);
-      const dateStr = txDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      const timeStr = txDate.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' });
-      const typeStr = tx.type === 'due' ? (lang === 'bn' ? 'বকেয়া' : 'Due') : (lang === 'bn' ? 'জমা' : 'Payment');
-      const amountStr = `৳ ${formatNumber(tx.amount, lang)}`;
-      const typeClass = tx.type === 'due' ? 'text-red' : 'text-green';
-      
-      return `
-        <tr>
-          <td>${idx + 1}</td>
-          <td>${dateStr} <span class="time-text">${timeStr}</span></td>
-          <td>${tx.description || '-'}</td>
-          <td class="${typeClass} font-bold">${typeStr}</td>
-          <td class="${typeClass} font-black">${tx.type === 'due' ? '+' : '-'} ${amountStr}</td>
-        </tr>
-      `;
-    }).join('');
-    
-    const titleText = lang === 'bn' ? 'লেনদেন রিপোর্ট' : 'Transaction Report';
-    const clientDetailsText = lang === 'bn' ? 'গ্রাহকের বিবরণ' : 'Client Details';
-    const nameLabel = lang === 'bn' ? 'নাম:' : 'Name:';
-    const phoneLabel = lang === 'bn' ? 'মোবাইল:' : 'Phone:';
-    const statusLabel = lang === 'bn' ? 'বর্তমান অবস্থা:' : 'Current Status:';
-    const totalDuesLabel = lang === 'bn' ? 'মোট বকেয়া লিখন' : 'Total Due Added';
-    const totalPaymentsLabel = lang === 'bn' ? 'মোট জমা লিখন' : 'Total Paid';
-    const totalTransactionsText = lang === 'bn' ? 'মোট লেনদেনের বিবরণ' : 'Transactions Log';
     
     const totalDuesCalculated = selectedCustomerTransactions
       .filter(tx => tx.type === 'due')
@@ -816,134 +794,308 @@ if (sortBy === 'custom') {
     const totalPaymentsCalculated = selectedCustomerTransactions
       .filter(tx => tx.type === 'payment')
       .reduce((sum, tx) => sum + tx.amount, 0);
+
+    const rowsHtml = selectedCustomerTransactions.map((tx, idx) => {
+      const txDate = parseFirestoreDate(tx.date);
+      const dateStr = txDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const timeStr = txDate.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' });
+      const isDue = tx.type === 'due';
+      const typeStr = isDue ? (lang === 'bn' ? 'বকেয়া' : 'Due') : (lang === 'bn' ? 'পরিশোধ' : 'Payment');
+      const amountStr = `৳ ${formatNumber(tx.amount, lang)}`;
+      const typeClass = isDue ? 'tx-due' : 'tx-payment';
+      const sign = isDue ? '+' : '-';
       
+      return `
+        <tr>
+          <td class="col-num">${idx + 1}</td>
+          <td class="col-date">${dateStr}<div class="time-sub">${timeStr}</div></td>
+          <td class="col-desc">${tx.description || (lang === 'bn' ? 'নিয়মিত হিসাব' : 'General entry')}</td>
+          <td class="col-type"><span class="badge ${typeClass}">${typeStr}</span></td>
+          <td class="col-amt ${typeClass}">${sign} ${amountStr}</td>
+        </tr>
+      `;
+    }).join('');
+    
+    const isSettled = outstandingDue === 0;
+    const isDue = outstandingDue > 0;
+    const statusText = isDue 
+      ? (lang === 'bn' ? 'বকেয়া পাওনা' : 'Outstanding Balance') 
+      : (!isSettled 
+        ? (lang === 'bn' ? 'অগ্রিম জমা' : 'Credit Surplus') 
+        : (lang === 'bn' ? 'পরিশোধিত' : 'Fully Settled'));
+        
+    const statusBadgeClass = isDue ? 'status-due' : (!isSettled ? 'status-credit' : 'status-settled');
+    const balanceAmountDisplay = isSettled 
+      ? '৳ 0' 
+      : `${outstandingDue < 0 ? '-' : ''}৳ ${formatNumber(Math.abs(outstandingDue), lang)}`;
+
+    const statementTitle = lang === 'bn' ? 'হিসাব বিবরণী ও লেনদেন রসিদ' : 'ACCOUNT STATEMENT RECEIPT';
+    const refNum = `CT-${selectedCustomer.id.slice(-6).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+    const nowStr = new Date().toLocaleString(lang === 'bn' ? 'bn-BD' : 'en-US', { 
+      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' 
+    });
+
     const reportHtml = `
       <!DOCTYPE html>
       <html>
       <head>
-        <title>${customerName} - ${titleText}</title>
+        <meta charset="utf-8" />
+        <title>${customerName} - ${lang === 'bn' ? 'স্টেটমেন্ট' : 'Statement'}</title>
         <style>
+          @page {
+            size: A4;
+            margin: 15mm 12mm;
+          }
+          * {
+            box-sizing: border-box;
+          }
           body {
-            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            color: #1c1917;
-            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            color: #18181b;
+            background: #ffffff;
             margin: 0;
+            padding: 24px;
+            font-size: 13px;
+            line-height: 1.5;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .receipt-container {
+            max-width: 640px;
+            margin: 0 auto;
+          }
+          .bank-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 1.5px solid #18181b;
+            padding-bottom: 14px;
+            margin-bottom: 20px;
+          }
+          .brand-name {
+            font-size: 16px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #09090b;
+          }
+          .brand-sub {
+            font-size: 10px;
+            font-weight: 600;
+            color: #71717a;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            margin-top: 2px;
+          }
+          .meta-side {
+            text-align: right;
+            font-size: 11px;
+            color: #71717a;
             line-height: 1.4;
           }
-          .header {
+          .meta-ref {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-weight: 700;
+            color: #27272a;
+          }
+          .account-banner {
+            border: 1px solid #e4e4e7;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            background-color: #fafafa;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 2px solid #e7e5e4;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
           }
-          .title {
-            font-size: 24px;
-            font-weight: 800;
-            color: #059669;
-          }
-          .meta-info {
-            text-align: right;
-            font-size: 12px;
-            color: #78716c;
-          }
-          .details-card {
-            background-color: #fafaf9;
-            border: 1px solid #e7e5e4;
-            border-radius: 12px;
-            padding: 15px;
-            margin-bottom: 20px;
-          }
-          .details-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-          }
-          .detail-item {
-            font-size: 14px;
-          }
-          .detail-label {
-            font-weight: 700;
-            color: #78716c;
-            margin-right: 5px;
-          }
-          .detail-value {
-            font-weight: 800;
-          }
-          .summary-boxes {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 25px;
-          }
-          .summary-box {
+          .account-info-col {
             flex: 1;
-            padding: 15px;
-            border-radius: 12px;
-            border: 1px solid #e7e5e4;
-            text-align: center;
           }
-          .summary-box.due {
-            background-color: #fef2f2;
-            border-color: #fca5a5;
-            color: #dc2626;
-          }
-          .summary-box.payment {
-            background-color: #ecfdf5;
-            border-color: #6ee7b7;
-            color: #059669;
-          }
-          .summary-box.balance {
-            background-color: #f5f5f4;
-            border-color: #d6d3d1;
-          }
-          .summary-label {
-            font-size: 11px;
+          .account-label {
+            font-size: 10px;
+            text-transform: uppercase;
             font-weight: 700;
+            letter-spacing: 0.5px;
+            color: #71717a;
+            margin-bottom: 3px;
+          }
+          .account-name {
+            font-size: 17px;
+            font-weight: 800;
+            color: #09090b;
+          }
+          .account-phone {
+            font-size: 12px;
+            color: #52525b;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            margin-top: 2px;
+          }
+          .balance-badge-col {
+            text-align: right;
+          }
+          .balance-val {
+            font-size: 22px;
+            font-weight: 900;
+            color: #09090b;
+            letter-spacing: -0.5px;
+          }
+          .status-tag {
+            display: inline-block;
+            margin-top: 4px;
+            font-size: 10px;
+            font-weight: 800;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-bottom: 5px;
+            padding: 3px 8px;
+            border-radius: 4px;
           }
-          .summary-value {
-            font-size: 20px;
-            font-weight: 900;
+          .status-due {
+            background-color: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+          }
+          .status-credit {
+            background-color: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+          }
+          .status-settled {
+            background-color: #f0fdf4;
+            color: #15803d;
+            border: 1px solid #bbf7d0;
+          }
+          .financial-summary {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            border: 1px solid #e4e4e7;
+            border-radius: 6px;
+            margin-bottom: 22px;
+            overflow: hidden;
+          }
+          .fin-cell {
+            padding: 10px 14px;
+            background: #ffffff;
+          }
+          .fin-cell:first-child {
+            border-right: 1px solid #e4e4e7;
+          }
+          .fin-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #71717a;
+            margin-bottom: 2px;
+          }
+          .fin-amount {
+            font-size: 14px;
+            font-weight: 800;
+          }
+          .fin-due {
+            color: #b91c1c;
+          }
+          .fin-paid {
+            color: #15803d;
+          }
+          .table-header-title {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: #52525b;
+            margin-bottom: 8px;
           }
           table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 15px;
+            font-size: 12px;
           }
           th {
-            background-color: #f5f5f4;
-            border-bottom: 2px solid #e7e5e4;
-            padding: 10px;
-            text-align: left;
-            font-size: 12px;
-            font-weight: 800;
+            background-color: #f4f4f5;
+            color: #52525b;
             text-transform: uppercase;
-            color: #78716c;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            padding: 8px 10px;
+            text-align: left;
+            border-top: 1px solid #e4e4e7;
+            border-bottom: 1px solid #e4e4e7;
           }
           td {
-            padding: 12px 10px;
-            border-bottom: 1px solid #f5f5f4;
-            font-size: 13px;
+            padding: 9px 10px;
+            border-bottom: 1px solid #f4f4f5;
+            vertical-align: middle;
           }
-          .time-text {
-            color: #a8a29e;
+          tr:last-child td {
+            border-bottom: 1px solid #e4e4e7;
+          }
+          .col-num {
+            width: 6%;
+            color: #a1a1aa;
             font-size: 11px;
-            margin-left: 5px;
           }
-          .text-red {
-            color: #dc2626;
+          .col-date {
+            width: 26%;
+            font-weight: 600;
+            color: #27272a;
           }
-          .text-green {
-            color: #059669;
+          .time-sub {
+            font-size: 10px;
+            color: #a1a1aa;
+            font-weight: normal;
           }
-          .font-bold {
+          .col-desc {
+            width: 38%;
+            color: #3f3f46;
+          }
+          .col-type {
+            width: 14%;
+            text-align: center;
+          }
+          .col-amt {
+            width: 16%;
+            text-align: right;
+            font-weight: 800;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+          }
+          .badge {
+            font-size: 9px;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 2px 6px;
+            border-radius: 3px;
+          }
+          .tx-due {
+            color: #b91c1c;
+          }
+          .tx-payment {
+            color: #15803d;
+          }
+          .badge.tx-due {
+            background: #fef2f2;
+            color: #b91c1c;
+          }
+          .badge.tx-payment {
+            background: #f0fdf4;
+            color: #15803d;
+          }
+          .receipt-footer {
+            margin-top: 28px;
+            padding-top: 14px;
+            border-top: 1px dashed #d4d4d8;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 10px;
+            color: #71717a;
+          }
+          .receipt-footer-left {
+            line-height: 1.4;
+          }
+          .receipt-footer-right {
+            text-align: right;
             font-weight: 700;
-          }
-          .font-black {
-            font-weight: 900;
+            color: #52525b;
           }
           @media print {
             body {
@@ -953,67 +1105,73 @@ if (sortBy === 'custom') {
         </style>
       </head>
       <body>
-        <div class="header">
-          <div>
-            <div class="title">Challan Track</div>
-            <div style="font-size: 12px; color: #78716c; margin-top: 2px;">${titleText}</div>
-          </div>
-          <div class="meta-info">
-            <div>Date: ${new Date().toLocaleDateString()}</div>
-            <div>Time: ${new Date().toLocaleTimeString()}</div>
-          </div>
-        </div>
-        
-        <div class="details-card">
-          <div style="font-size: 14px; font-weight: 800; margin-bottom: 10px; border-bottom: 1px solid #e7e5e4; padding-bottom: 5px;">${clientDetailsText}</div>
-          <div class="details-grid">
-            <div class="detail-item">
-              <span class="detail-label">${nameLabel}</span>
-              <span class="detail-value">${customerName}</span>
+        <div class="receipt-container">
+          <div class="bank-header">
+            <div>
+              <div class="brand-name">Challan Track</div>
+              <div class="brand-sub">${statementTitle}</div>
             </div>
-            <div class="detail-item">
-              <span class="detail-label">${phoneLabel}</span>
-              <span class="detail-value">${customerPhone}</span>
+            <div class="meta-side">
+              <div>Ref: <span class="meta-ref">${refNum}</span></div>
+              <div>Date: ${nowStr}</div>
             </div>
           </div>
-        </div>
-        
-        <div class="summary-boxes">
-          <div class="summary-box due">
-            <div class="summary-label">${totalDuesLabel}</div>
-            <div class="summary-value">+ ৳ ${formatNumber(totalDuesCalculated, lang)}</div>
+
+          <div class="account-banner">
+            <div class="account-info-col">
+              <div class="account-label">${lang === 'bn' ? 'গ্রাহক / হিসাবধারী' : 'ACCOUNT HOLDER'}</div>
+              <div class="account-name">${customerName}</div>
+              <div class="account-phone">${customerPhone}</div>
+            </div>
+            <div class="balance-badge-col">
+              <div class="account-label">${lang === 'bn' ? 'বর্তমান মোট স্থিতি' : 'NET BALANCE'}</div>
+              <div class="balance-val">${balanceAmountDisplay}</div>
+              <span class="status-tag ${statusBadgeClass}">${statusText}</span>
+            </div>
           </div>
-          <div class="summary-box payment">
-            <div class="summary-label">${totalPaymentsLabel}</div>
-            <div class="summary-value">- ৳ ${formatNumber(totalPaymentsCalculated, lang)}</div>
+
+          <div class="financial-summary">
+            <div class="fin-cell">
+              <div class="fin-label">${lang === 'bn' ? 'মোট নতুন পাওনা' : 'TOTAL DUES BILLED'}</div>
+              <div class="fin-amount fin-due">+ ৳ ${formatNumber(totalDuesCalculated, lang)}</div>
+            </div>
+            <div class="fin-cell">
+              <div class="fin-label">${lang === 'bn' ? 'মোট উসুল / জমা' : 'TOTAL PAYMENTS RECEIVED'}</div>
+              <div class="fin-amount fin-paid">- ৳ ${formatNumber(totalPaymentsCalculated, lang)}</div>
+            </div>
           </div>
-          <div class="summary-box balance">
-            <div class="summary-label">${statusLabel}</div>
-            <div class="summary-value" style="color: ${outstandingDue > 0 ? '#dc2626' : (outstandingDue < 0 ? '#059669' : '#1c1917')}">
-              ${outstandingDue > 0 ? (lang === 'bn' ? '৳ ' + formatNumber(outstandingDue, lang) + ' বকেয়া' : '৳ ' + formatNumber(outstandingDue, lang) + ' Due') : (outstandingDue < 0 ? (lang === 'bn' ? '৳ ' + formatNumber(Math.abs(outstandingDue), lang) + ' অগ্রিম জমা' : '৳ ' + formatNumber(Math.abs(outstandingDue), lang) + ' Surplus') : (lang === 'bn' ? 'পরিশোধিত' : 'Settled'))}
+
+          <div class="table-header-title">${lang === 'bn' ? 'লেনদেন বিবরণী (আইটেম তালিকা)' : 'ITEMIZED TRANSACTION LOG'}</div>
+          <table>
+            <thead>
+              <tr>
+                <th class="col-num">#</th>
+                <th class="col-date">${lang === 'bn' ? 'তারিখ ও সময়' : 'DATE & TIME'}</th>
+                <th class="col-desc">${lang === 'bn' ? 'বিবরণ' : 'DESCRIPTION'}</th>
+                <th class="col-type">${lang === 'bn' ? 'ধরন' : 'TYPE'}</th>
+                <th class="col-amt">${lang === 'bn' ? 'পরিমাণ' : 'AMOUNT'}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+
+          <div class="receipt-footer">
+            <div class="receipt-footer-left">
+              <div>${lang === 'bn' ? 'চালান ট্র্যাক ডিজিটাল হিসাব খতিয়ান দ্বারা স্বয়ংক্রিয়ভাবে তৈরি।' : 'Digitally generated account statement issued via Challan Track.'}</div>
+              <div>${lang === 'bn' ? 'যেকোনো জিজ্ঞাসায় সরাসরি হিসাব পরিচালনাকারীর সাথে যোগাযোগ করুন।' : 'No physical signature is required for electronic validation.'}</div>
+            </div>
+            <div class="receipt-footer-right">
+              <div>CHALLAN TRACK</div>
+              <div style="font-size: 9px; color: #a1a1aa;">VERIFIED RECORD</div>
             </div>
           </div>
         </div>
-        
-        <div style="font-size: 15px; font-weight: 800; border-bottom: 2px solid #059669; padding-bottom: 5px; margin-top: 20px;">${totalTransactionsText}</div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 8%;">SL</th>
-              <th style="width: 25%;">Date & Time</th>
-              <th style="width: 35%;">Description</th>
-              <th style="width: 15%;">Type</th>
-              <th style="width: 17%;">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
       </body>
       </html>
     `;
-    
+
     doc.open();
     doc.write(reportHtml);
     doc.close();
@@ -1219,16 +1377,14 @@ if (sortBy === 'custom') {
   onChange={(e) => setNewPhone(e.target.value)}
   className="flex-1 px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-800 dark:text-white text-base focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
   />
-  {('contacts' in navigator && 'ContactsManager' in window) && (
-    <button
-      type="button"
-      onClick={() => handlePickContact(setNewPhone)}
-      className="px-3.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-sm shrink-0"
-      title={lang === 'bn' ? 'কন্টাক্ট নির্বাচন করুন' : 'Pick Contact'}
-    >
-      <BookUser className="w-5 h-5" />
-    </button>
-  )}
+  <button
+    type="button"
+    onClick={() => handlePickContact(setNewPhone, (name) => { if (!newName.trim()) setNewName(name); })}
+    className="px-3.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-sm shrink-0"
+    title={lang === 'bn' ? 'কন্টাক্ট নির্বাচন করুন' : 'Pick Contact'}
+  >
+    <BookUser className="w-5 h-5" />
+  </button>
   </div>
  </div>
  </div>
@@ -1502,15 +1658,15 @@ if (sortBy === 'custom') {
  					<div className="min-w-0 pr-1">
  						<div className={`text-xl font-black truncate ${
  							c.outstandingDue > 0
- 								? 'text-rose-600 dark:text-rose-400'
+ 								? 'text-rose-700 dark:text-rose-500'
  								: c.outstandingDue < 0
- 									? 'text-blue-600 dark:text-blue-400'
+ 									? 'text-blue-500 dark:text-blue-400'
  									: 'text-emerald-600 dark:text-emerald-400'
  						}`}>
  							{c.outstandingDue === 0 ? (
- 								lang === 'bn' ? '০.০০' : '0.00'
+ 								lang === 'bn' ? '৳ ০' : '৳ 0'
  							) : (
- 								`${c.outstandingDue < 0 ? '-' : ''}${formatNumber(Math.abs(c.outstandingDue), lang)}`
+ 								`${c.outstandingDue < 0 ? '-' : ''}৳ ${formatNumber(Math.abs(c.outstandingDue), lang)}`
  							)}
  						</div>
  						<div className="text-sm font-bold text-zinc-400 dark:text-zinc-500 mt-0.5">
@@ -1647,16 +1803,14 @@ if (sortBy === 'custom') {
       className="flex-1 px-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white focus:outline-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 text-base font-extrabold"
       placeholder={lang === 'bn' ? 'যেমন: ০১৭...' : 'e.g. 017...'}
     />
-    {('contacts' in navigator && 'ContactsManager' in window) && (
-      <button
-        type="button"
-        onClick={() => handlePickContact(setEditPhone)}
-        className="px-3.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-650 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-sm shrink-0"
-        title={lang === 'bn' ? 'কন্টাক্ট নির্বাচন করুন' : 'Pick Contact'}
-      >
-        <BookUser className="w-5 h-5" />
-      </button>
-    )}
+    <button
+      type="button"
+      onClick={() => handlePickContact(setEditPhone)}
+      className="px-3.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-650 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-sm shrink-0"
+      title={lang === 'bn' ? 'কন্টাক্ট নির্বাচন করুন' : 'Pick Contact'}
+    >
+      <BookUser className="w-5 h-5" />
+    </button>
   </div>
  </div>
  {editError && (
@@ -1723,9 +1877,9 @@ if (sortBy === 'custom') {
  <span className="text-2xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block">{t.currentBalance}</span>
  <span className={`text-2xl font-black mt-1 ${
  selectedCustomer.outstandingDue > 0 
- ? 'text-rose-600 dark:text-rose-400' 
+ ? 'text-rose-700 dark:text-rose-500' 
  : selectedCustomer.outstandingDue < 0 
- ? 'text-blue-600 dark:text-blue-400' 
+ ? 'text-blue-500 dark:text-blue-400' 
  : 'text-emerald-600 dark:text-emerald-400'
  }`}>
  {selectedCustomer.outstandingDue === 0 ? t.settled : `৳ ${formatNumber(selectedCustomer.outstandingDue, lang)}`}

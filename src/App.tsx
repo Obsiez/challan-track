@@ -16,7 +16,7 @@ import GoalsManager from './components/GoalsManager';
 import QuickEntryModal from './components/QuickEntryModal';
 import AnalyticsManager from './components/AnalyticsManager';
 import {
-  LayoutDashboard, Users, Bell, Settings, BookOpen, Clock, Globe, Plus, Moon, Sun, ArrowUpRight, ArrowDownLeft, ChevronRight, BarChart3, ArrowLeft, ClipboardList, Lock, Loader2, Calendar, PiggyBank
+  LayoutDashboard, Users, Bell, Settings, BookOpen, Clock, Globe, Plus, Moon, Sun, ArrowUpRight, ArrowDownLeft, ChevronRight, BarChart3, ArrowLeft, ClipboardList, Lock, Loader2, Calendar, PiggyBank, Vault
 } from 'lucide-react';
 import { showNotification } from './lib/notifications';
 import { motion, AnimatePresence } from 'motion/react';
@@ -600,21 +600,29 @@ export default function App() {
  </div>
 
  <div className="flex items-center gap-2">
- {/* Quick-Entry Primary Header Trigger */}
+ {/* Reminders Header Action Button */}
  <button
  onClick={() => { triggerHaptic('single'); navigateTo('reminders'); }}
- className={`px-4 py-2.5 rounded-xl border transition-all cursor-pointer flex items-center gap-2 relative ${
+ className={`px-3.5 py-2 rounded-xl border transition-all cursor-pointer flex items-center gap-2 shadow-sm active:scale-95 ${
    currentTab === 'reminders'
-     ? 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30'
-     : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100'
+     ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700 font-bold'
+     : 'bg-white dark:bg-zinc-800 border-zinc-250 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-750 hover:border-zinc-300'
  }`}
  title={t.reminders}
  id="header_reminders_btn"
  >
- <Bell className="w-4.5 h-4.5 stroke-[2]" />
+ <div className={`p-1 rounded-lg ${
+   currentTab === 'reminders'
+     ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400'
+     : 'bg-zinc-100 dark:bg-zinc-700/60 text-zinc-600 dark:text-zinc-300'
+ }`}>
+   <Bell className="w-3.5 h-3.5 stroke-[2.2]" />
+ </div>
  <span className="text-xs font-bold">{t.reminders}</span>
  {reminders.filter(r => r.active).length > 0 && (
-   <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white dark:ring-zinc-900" />
+   <span className="ml-0.5 px-1.5 py-0.2 bg-rose-500 text-white text-[10px] font-black rounded-full leading-none shadow-sm">
+     {reminders.filter(r => r.active).length}
+   </span>
  )}
  </button>
  </div>
@@ -932,7 +940,7 @@ updateSettings={updateSettings}
  }`}
  id="nav_goals_tab"
  >
- <PiggyBank className="w-6 h-6 stroke-[2]" />
+ <Vault className="w-6 h-6 stroke-[2]" />
  <span className="text-2xs font-semibold">{t.goals}</span>
  </button>
 
