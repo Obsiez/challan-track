@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Customer, SavingGoal, GoalContribution } from '../types';
 import { 
-  Target, Calendar, Plus, Users, Trash2, CheckCircle2, ChevronRight, X, AlertCircle, ReceiptText, AlertTriangle, PiggyBank, CalendarClock, RotateCcw, Goal, Percent, Calculator 
+  Target, Calendar, Plus, Users, Trash2, CheckCircle2, ChevronRight, ChevronDown, CreditCard, X, AlertCircle, ReceiptText, AlertTriangle, PiggyBank, CalendarClock, RotateCcw, Goal, Percent, Calculator 
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { triggerHaptic } from '../lib/haptics';
@@ -72,6 +72,7 @@ export default function GoalsManager({
   // Selected Goal Details Modal state
   const [selectedGoal, setSelectedGoal] = useState<SavingGoal | null>(null);
   const [showInstallmentForm, setShowInstallmentForm] = useState(false);
+  const [isEmiBreakdownOpen, setIsEmiBreakdownOpen] = useState(false);
   const [installmentInput, setInstallmentInput] = useState('');
   const [installmentNote, setInstallmentNote] = useState('');
   const [syncToLedger, setSyncToLedger] = useState(true);
@@ -92,6 +93,10 @@ export default function GoalsManager({
       document.body.style.overflow = '';
     };
   }, [showCreateModal, selectedGoal, showCancelConfirm, showDeleteConfirm, showReactivateConfirm]);
+
+  useEffect(() => {
+    setIsEmiBreakdownOpen(false);
+  }, [selectedGoal?.id]);
 
   // Computed lists
   const activeGoals = goals.filter(g => g.status === 'active');
@@ -1017,62 +1022,84 @@ export default function GoalsManager({
                 </div>
               </div>
 
-              {/* Dedicated EMI & Loan Details Card */}
+              {/* Dedicated EMI & Loan Details Card - Compact & Collapsible by default */}
               {selectedGoalEmiDetails && (
-                <div className="bg-rose-50/60 dark:bg-rose-950/20 p-4 rounded-2xl border border-rose-200/60 dark:border-rose-900/40 space-y-3">
-                  <div className="flex items-center justify-between pb-2 border-b border-rose-200/50 dark:border-rose-900/40">
-                    <div className="flex items-center gap-2">
-                      <Calculator className="w-4 h-4 text-[#e0385e]" />
-                      <span className="text-xs font-black text-[#e0385e] uppercase tracking-wider">
-                        {lang === 'bn' ? 'ইএমআই ও কিস্তির বিবরণী' : 'EMI & Loan Breakdown'}
+                <div className="bg-zinc-50 dark:bg-zinc-950/40 rounded-2xl border border-zinc-200/80 dark:border-zinc-850/80 overflow-hidden transition-all shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic('single');
+                      setIsEmiBreakdownOpen(prev => !prev);
+                    }}
+                    className="w-full p-3.5 flex items-center justify-between text-left hover:bg-zinc-100/70 dark:hover:bg-zinc-900/50 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CreditCard className="w-4 h-4 text-[#e0385e] shrink-0" />
+                      <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 truncate">
+                        {lang === 'bn' ? 'ইএমআই ও ঋণ বিবরণী' : 'EMI & Loan Breakdown'}
                       </span>
+                      {selectedGoalEmiDetails.tenure && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#e0385e]/10 text-[#e0385e] shrink-0">
+                          {formatNumber(selectedGoalEmiDetails.tenure, lang)} {selectedGoalEmiDetails.tenureUnit}
+                        </span>
+                      )}
                     </div>
-                    {selectedGoalEmiDetails.tenure && (
-                      <span className="px-2.5 py-0.5 rounded-md text-[11px] font-black bg-[#e0385e]/10 text-[#e0385e]">
-                        {formatNumber(selectedGoalEmiDetails.tenure, lang)} {selectedGoalEmiDetails.tenureUnit}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-rose-100 dark:border-rose-900/30">
-                      <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
-                        {lang === 'bn' ? 'মূল পরিমাণ (Principal)' : 'Principal Amount'}
-                      </span>
-                      <span className="text-sm font-black text-zinc-900 dark:text-white mt-0.5 block">
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <span className="text-[11px] font-bold text-zinc-500 dark:text-zinc-400">
                         ৳{formatNumber(selectedGoalEmiDetails.principal, lang)}
                       </span>
+                      <ChevronDown 
+                        className={`w-4 h-4 text-zinc-400 transition-transform duration-200 ${
+                          isEmiBreakdownOpen ? 'rotate-180 text-zinc-700 dark:text-zinc-200' : ''
+                        }`} 
+                      />
                     </div>
+                  </button>
 
-                    <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-rose-100 dark:border-rose-900/30">
-                      <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
-                        {lang === 'bn' ? 'মুনাফা / অতিরিক্ত ফি (Fee)' : 'Interest / Fee'}
-                      </span>
-                      <span className="text-sm font-black text-rose-600 dark:text-rose-400 mt-0.5 block">
-                        {selectedGoalEmiDetails.interestAmount > 0 
-                          ? `+৳${formatNumber(selectedGoalEmiDetails.interestAmount, lang)} ${selectedGoalEmiDetails.interestRate ? `(${selectedGoalEmiDetails.interestRate}%)` : ''}` 
-                          : (lang === 'bn' ? '০% (ফি প্রযোজ্য নয়)' : '0% (No Fee)')}
-                      </span>
-                    </div>
+                  {/* Collapsible Content */}
+                  {isEmiBreakdownOpen && (
+                    <div className="px-3 pb-3 pt-1 border-t border-zinc-200/60 dark:border-zinc-850/80 animate-in fade-in duration-150">
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div className="bg-white dark:bg-zinc-900 p-2.5 rounded-xl border border-zinc-200/70 dark:border-zinc-800/70">
+                          <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
+                            {lang === 'bn' ? 'মূল পরিমাণ (Principal)' : 'Principal Amount'}
+                          </span>
+                          <span className="text-xs font-black text-zinc-900 dark:text-white mt-0.5 block">
+                            ৳{formatNumber(selectedGoalEmiDetails.principal, lang)}
+                          </span>
+                        </div>
 
-                    <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-rose-100 dark:border-rose-900/30">
-                      <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
-                        {lang === 'bn' ? 'প্রতি কিস্তি (Per Installment)' : 'Installment Rate'}
-                      </span>
-                      <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block">
-                        ৳{formatNumber(selectedGoal.installmentAmount || Math.ceil(selectedGoal.targetAmount / (selectedGoalEmiDetails.tenure || 1)), lang)}
-                      </span>
-                    </div>
+                        <div className="bg-white dark:bg-zinc-900 p-2.5 rounded-xl border border-zinc-200/70 dark:border-zinc-800/70">
+                          <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
+                            {lang === 'bn' ? 'মুনাফা / ফি (Fee)' : 'Interest / Fee'}
+                          </span>
+                          <span className="text-xs font-black text-[#e0385e] mt-0.5 block">
+                            {selectedGoalEmiDetails.interestAmount > 0 
+                              ? `+৳${formatNumber(selectedGoalEmiDetails.interestAmount, lang)} ${selectedGoalEmiDetails.interestRate ? `(${selectedGoalEmiDetails.interestRate}%)` : ''}` 
+                              : (lang === 'bn' ? '০% (ফি প্রযোজ্য নয়)' : '0% (No Fee)')}
+                          </span>
+                        </div>
 
-                    <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-rose-100 dark:border-rose-900/30">
-                      <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
-                        {lang === 'bn' ? 'মোট প্রদেয় (Total Payable)' : 'Total Payable'}
-                      </span>
-                      <span className="text-sm font-black text-zinc-900 dark:text-white mt-0.5 block">
-                        ৳{formatNumber(selectedGoal.targetAmount, lang)}
-                      </span>
+                        <div className="bg-white dark:bg-zinc-900 p-2.5 rounded-xl border border-zinc-200/70 dark:border-zinc-800/70">
+                          <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
+                            {lang === 'bn' ? 'প্রতি কিস্তি (Per Installment)' : 'Installment Rate'}
+                          </span>
+                          <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block">
+                            ৳{formatNumber(selectedGoal.installmentAmount || Math.ceil(selectedGoal.targetAmount / (selectedGoalEmiDetails.tenure || 1)), lang)}
+                          </span>
+                        </div>
+
+                        <div className="bg-white dark:bg-zinc-900 p-2.5 rounded-xl border border-zinc-200/70 dark:border-zinc-800/70">
+                          <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase block">
+                            {lang === 'bn' ? 'মোট প্রদেয় (Total Payable)' : 'Total Payable'}
+                          </span>
+                          <span className="text-xs font-black text-zinc-900 dark:text-white mt-0.5 block">
+                            ৳{formatNumber(selectedGoal.targetAmount, lang)}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -1245,29 +1272,31 @@ export default function GoalsManager({
                   {lang === 'bn' ? 'জমার বিবরণী' : 'Contribution Ledger'} ({selectedGoal.contributions?.length || 0})
                 </span>
 
-                <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-150 dark:border-zinc-850 rounded-2xl overflow-hidden max-h-[220px] overflow-y-auto divide-y divide-zinc-200/50 dark:divide-zinc-850">
-                  {(!selectedGoal.contributions || selectedGoal.contributions.length === 0) ? (
-                    <div className="p-6 text-center text-xs font-bold text-zinc-400 dark:text-zinc-500 flex flex-col items-center gap-1.5">
-                      <ReceiptText className="w-8 h-8 stroke-[1.5] text-zinc-350 dark:text-zinc-700" />
-                      {lang === 'bn' ? 'কোন কিস্তি বা জমার রেকর্ড পাওয়া যায়নি' : 'No payments logged yet'}
-                    </div>
-                  ) : (
-                    [...selectedGoal.contributions].reverse().map((c, index) => (
-                      <div key={index} className="p-3 flex items-center justify-between gap-4 text-xs">
-                        <div className="min-w-0">
-                          <div className="font-extrabold text-zinc-800 dark:text-zinc-200 truncate">
-                            {c.note || (lang === 'bn' ? 'কিস্তি জমা' : 'Installment Added')}
-                          </div>
-                          <div className="text-[10px] text-zinc-400 font-bold mt-0.5">
-                            {new Date(c.date).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{' • '}{new Date(c.date).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
-                          </div>
-                        </div>
-                        <span className="font-black text-emerald-600 dark:text-emerald-400 shrink-0 text-sm">
-                          + ৳{formatNumber(c.amount, lang)}
-                        </span>
+                <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-850 rounded-2xl overflow-hidden shadow-xs">
+                  <div className="max-h-[220px] overflow-y-auto divide-y divide-zinc-200/50 dark:divide-zinc-850 pr-1.5 mr-0.5">
+                    {(!selectedGoal.contributions || selectedGoal.contributions.length === 0) ? (
+                      <div className="p-6 text-center text-xs font-bold text-zinc-400 dark:text-zinc-500 flex flex-col items-center gap-1.5">
+                        <ReceiptText className="w-8 h-8 stroke-[1.5] text-zinc-350 dark:text-zinc-700" />
+                        {lang === 'bn' ? 'কোন কিস্তি বা জমার রেকর্ড পাওয়া যায়নি' : 'No payments logged yet'}
                       </div>
-                    ))
-                  )}
+                    ) : (
+                      [...selectedGoal.contributions].reverse().map((c, index) => (
+                        <div key={index} className="p-3 flex items-center justify-between gap-4 text-xs">
+                          <div className="min-w-0">
+                            <div className="font-extrabold text-zinc-800 dark:text-zinc-200 truncate">
+                              {c.note || (lang === 'bn' ? 'কিস্তি জমা' : 'Installment Added')}
+                            </div>
+                            <div className="text-[10px] text-zinc-400 font-bold mt-0.5">
+                              {new Date(c.date).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{' • '}{new Date(c.date).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                          <span className="font-black text-emerald-600 dark:text-emerald-400 shrink-0 text-sm">
+                            + ৳{formatNumber(c.amount, lang)}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
               </div>
 

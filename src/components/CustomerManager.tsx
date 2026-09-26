@@ -4,8 +4,15 @@ import {
 	Search, UserPlus, Phone, ArrowUpRight, ArrowDownLeft, ReceiptText, ChevronDown, ChevronUp, ChevronRight, Pin, 
 	MessageSquare, Trash2, Pencil, RefreshCw, X, UserMinus, Plus, ShieldCheck, CheckCircle2, 
 	AlertTriangle, ArrowLeftRight, Check, Trash, Users, Send, ArrowLeft, ArrowUpDown, Delete,
-	Printer, BookUser
+	BookUser, Download, Share2, Copy
 } from 'lucide-react';
+import { 
+  generateReceiptPng, 
+  downloadReceiptImage, 
+  copyReceiptImage, 
+  shareReceiptImage, 
+  ReceiptImageResult 
+} from '../lib/receiptGenerator';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useAnimation } from 'motion/react';
 import { getPhoneticKey, matchesPhonetic } from '../lib/phonetics';
@@ -323,6 +330,9 @@ export default function CustomerManager({
  
   const [phoneWarningCustomer, setPhoneWarningCustomer] = useState<Customer | null>(null);
   const [pinActionCustomer, setPinActionCustomer] = useState<Customer | null>(null);
+  const [receiptResult, setReceiptResult] = useState<ReceiptImageResult | null>(null);
+  const [isGeneratingReceipt, setIsGeneratingReceipt] = useState(false);
+  const [isCopiedReceipt, setIsCopiedReceipt] = useState(false);
   const [sortBy, setSortBy] = useState<'recent' | 'high_balance' | 'low_balance' | 'custom'>('recent');
   const [customOrder, setCustomOrder] = useState<string[]>(() => {
     try {
@@ -409,7 +419,7 @@ const [editingTx, setEditingTx] = useState<Transaction | null>(null);
 
   // Disable background scrolling when any modal popup is active
   React.useEffect(() => {
-    if (deletingCustomer || editingTx || deletingTx || duplicateTxWarning || phoneWarningCustomer || pinActionCustomer) {
+    if (deletingCustomer || editingTx || deletingTx || duplicateTxWarning || phoneWarningCustomer || pinActionCustomer || receiptResult) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
@@ -417,7 +427,7 @@ const [editingTx, setEditingTx] = useState<Transaction | null>(null);
     return () => {
       document.body.style.overflow = '';
     };
-  }, [deletingCustomer, editingTx, deletingTx, duplicateTxWarning, phoneWarningCustomer, pinActionCustomer]);
+  }, [deletingCustomer, editingTx, deletingTx, duplicateTxWarning, phoneWarningCustomer, pinActionCustomer, receiptResult]);
 
    // Handle history for modals (mobile back gesture)
   React.useEffect(() => {
@@ -435,6 +445,10 @@ const [editingTx, setEditingTx] = useState<Transaction | null>(null);
         });
         return;
       }
+      if (receiptResult) {
+        setReceiptResult(null);
+        return;
+      }
       if (editingTx || deletingTx || deletingCustomer || duplicateTxWarning || pinActionCustomer || phoneWarningCustomer) {
         setEditingTx(null);
         setDeletingTx(null);
@@ -446,7 +460,7 @@ const [editingTx, setEditingTx] = useState<Transaction | null>(null);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [isEditingCustomer, editingTx, deletingTx, deletingCustomer, duplicateTxWarning, pinActionCustomer, phoneWarningCustomer]);
+  }, [isEditingCustomer, editingTx, deletingTx, deletingCustomer, duplicateTxWarning, pinActionCustomer, phoneWarningCustomer, receiptResult]);
 
   // Smooth scroll and highlight effect for target transaction
   React.useEffect(() => {
@@ -638,408 +652,23 @@ if (sortBy === 'custom') {
     }
   };
 
-  const handlePrintTransactions = () => {
+  const handleGenerateReceiptImage = async () => {
     if (!selectedCustomer) return;
-    
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-    
-    const doc = iframe.contentWindow?.document;
-    if (!doc) return;
-    
-    const customerName = selectedCustomer.name;
-    const customerPhone = selectedCustomer.phone || (lang === 'bn' ? 'প্রযোজ্য নয়' : 'N/A');
-    const outstandingDue = selectedCustomer.outstandingDue;
-    
-    // PDF document file name prefix
-    const cleanPrefix = customerName.replace(/[^\w\u0980-\u09FF]/g, '_').replace(/_+/g, '_').trim() || 'Customer';
-    const docTitle = `${cleanPrefix}_Receipt.pdf`;
-    
-    const totalDuesCalculated = selectedCustomerTransactions
-      .filter(tx => tx.type === 'due')
-      .reduce((sum, tx) => sum + tx.amount, 0);
-      
-    const totalPaymentsCalculated = selectedCustomerTransactions
-      .filter(tx => tx.type === 'payment')
-      .reduce((sum, tx) => sum + tx.amount, 0);
-
-    const rowsHtml = selectedCustomerTransactions.map((tx, idx) => {
-      const txDate = parseFirestoreDate(tx.date);
-      const dateStr = txDate.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: '2-digit', year: '2-digit' });
-      const timeStr = txDate.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' });
-      const isDue = tx.type === 'due';
-      const typeStr = isDue ? (lang === 'bn' ? 'বকেয়া' : 'DUE') : (lang === 'bn' ? 'জমা' : 'PAID');
-      const amountStr = `৳ ${formatNumber(tx.amount, lang)}`;
-      const sign = isDue ? '+' : '-';
-      const desc = tx.description ? tx.description.trim() : (lang === 'bn' ? 'সাধারণ এন্ট্রি' : 'General entry');
-      
-      return `
-        <div class="pos-item">
-          <div class="pos-item-top">
-            <span class="pos-item-date">${dateStr} ${timeStr}</span>
-            <span class="pos-item-type ${isDue ? 'type-due' : 'type-paid'}">${typeStr}</span>
-            <span class="pos-item-amt ${isDue ? 'amt-due' : 'amt-paid'}">${sign} ${amountStr}</span>
-          </div>
-          <div class="pos-item-desc">${desc}</div>
-        </div>
-      `;
-    }).join('');
-    
-    const isSettled = outstandingDue === 0;
-    const isDue = outstandingDue > 0;
-    const statusText = isDue 
-      ? (lang === 'bn' ? '[ বকেয়া ]' : '[ OUTSTANDING DUE ]') 
-      : (!isSettled 
-        ? (lang === 'bn' ? '[ অতিরিক্ত জমা ]' : '[ CREDIT SURPLUS ]') 
-        : (lang === 'bn' ? '[ সম্পূর্ণ পরিশোধিত ]' : '[ FULLY SETTLED ]'));
-        
-    const statusClass = isDue ? 'status-due' : (!isSettled ? 'status-credit' : 'status-settled');
-    const balanceAmountDisplay = isSettled 
-      ? '৳ 0' 
-      : `${outstandingDue < 0 ? '-' : ''}৳ ${formatNumber(Math.abs(outstandingDue), lang)}`;
-
-    const slipNo = `CT-${selectedCustomer.id.slice(-6).toUpperCase()}`;
-    const nowStr = new Date().toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { 
-      day: '2-digit', month: 'short', year: 'numeric'
-    });
-    const nowTimeStr = new Date().toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', {
-      hour: '2-digit', minute: '2-digit'
-    });
-
-    const reportHtml = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>${docTitle}</title>
-        <style>
-          @page {
-            size: 80mm auto;
-            margin: 0;
-          }
-          * {
-            box-sizing: border-box;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-          html, body {
-            margin: 0;
-            padding: 0;
-            background: #ffffff;
-            font-family: 'SF Mono', 'Roboto Mono', 'Courier Prime', Courier, 'Courier New', 'SolaimanLipi', 'Noto Sans Bengali', monospace;
-            color: #000000;
-            font-size: 11px;
-            line-height: 1.35;
-          }
-          body {
-            display: flex;
-            justify-content: center;
-          }
-          .receipt-paper {
-            width: 76mm;
-            padding: 8mm 4mm 10mm 4mm;
-            background: #ffffff;
-          }
-          .pos-center {
-            text-align: center;
-          }
-          .pos-bold {
-            font-weight: 900;
-          }
-          .brand-title {
-            font-size: 15px;
-            font-weight: 900;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            margin-bottom: 2px;
-          }
-          .brand-tagline {
-            font-size: 9px;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            color: #333333;
-            margin-bottom: 6px;
-          }
-          .receipt-cut {
-            border: none;
-            border-top: 1px dashed #000000;
-            margin: 6px 0;
-          }
-          .receipt-double {
-            border: none;
-            border-top: 2px solid #000000;
-            margin: 6px 0;
-          }
-          .meta-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 10px;
-            margin: 2px 0;
-          }
-          .meta-label {
-            color: #444444;
-            font-weight: 700;
-          }
-          .meta-value {
-            font-weight: 800;
-            text-align: right;
-          }
-          .table-header {
-            display: flex;
-            justify-content: space-between;
-            font-size: 10px;
-            font-weight: 900;
-            text-transform: uppercase;
-            padding: 3px 0;
-            border-top: 1px solid #000000;
-            border-bottom: 1px solid #000000;
-            margin: 6px 0 4px 0;
-          }
-          .pos-item {
-            padding: 4px 0;
-            border-bottom: 1px dotted #bbbbbb;
-          }
-          .pos-item-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: baseline;
-            font-size: 10.5px;
-          }
-          .pos-item-date {
-            font-weight: 600;
-            color: #333333;
-            font-size: 9.5px;
-          }
-          .pos-item-type {
-            font-weight: 900;
-            font-size: 9px;
-            padding: 1px 4px;
-            border-radius: 2px;
-          }
-          .type-due {
-            border: 1px solid #000000;
-          }
-          .type-paid {
-            background: #000000;
-            color: #ffffff;
-          }
-          .pos-item-amt {
-            font-weight: 900;
-            font-size: 11px;
-            text-align: right;
-          }
-          .pos-item-desc {
-            font-size: 9.5px;
-            color: #555555;
-            margin-top: 1px;
-            padding-left: 2px;
-            font-style: italic;
-          }
-          .summary-section {
-            margin-top: 6px;
-          }
-          .summary-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 10.5px;
-            margin: 3px 0;
-          }
-          .summary-row.total-due {
-            font-weight: 800;
-          }
-          .summary-row.total-paid {
-            font-weight: 800;
-          }
-          .net-balance-box {
-            border: 1.5px solid #000000;
-            padding: 8px 6px;
-            margin: 8px 0;
-            text-align: center;
-            background: #fafafa;
-          }
-          .net-balance-label {
-            font-size: 9px;
-            font-weight: 900;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-          }
-          .net-balance-amount {
-            font-size: 19px;
-            font-weight: 900;
-            letter-spacing: -0.5px;
-            margin: 2px 0;
-          }
-          .net-balance-status {
-            font-size: 10px;
-            font-weight: 900;
-            letter-spacing: 0.5px;
-          }
-          .barcode-container {
-            margin: 14px 0 6px 0;
-            text-align: center;
-          }
-          .barcode-strip {
-            display: inline-flex;
-            gap: 1.5px;
-            height: 24px;
-            align-items: stretch;
-            justify-content: center;
-          }
-          .barcode-strip span {
-            background: #000000;
-            display: inline-block;
-          }
-          .barcode-num {
-            font-size: 9px;
-            letter-spacing: 2px;
-            font-weight: 700;
-            margin-top: 3px;
-          }
-          .footer-note {
-            font-size: 8.5px;
-            text-align: center;
-            color: #444444;
-            line-height: 1.35;
-            margin-top: 8px;
-            text-transform: uppercase;
-          }
-          @media print {
-            body {
-              padding: 0;
-            }
-            .receipt-paper {
-              width: 100% !important;
-              padding: 4mm 2mm !important;
-            }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="receipt-paper">
-          <!-- TOP TEAR LINE -->
-          <div class="receipt-cut"></div>
-          
-          <!-- BRAND & HEADER -->
-          <div class="pos-center">
-            <div class="brand-title">CHALLAN TRACK</div>
-            <div class="brand-tagline">${lang === 'bn' ? 'ডিজিটাল হিসাব খতিয়ান রসিদ' : 'TRANSACTION MEMO / RECEIPT'}</div>
-            <div style="font-size: 9px; font-weight: 700;">* CUSTOMER ACCOUNT SLIP *</div>
-          </div>
-          
-          <div class="receipt-double"></div>
-          
-          <!-- METADATA -->
-          <div class="meta-row">
-            <span class="meta-label">${lang === 'bn' ? 'রসিদ নং' : 'SLIP NO'}:</span>
-            <span class="meta-value">${slipNo}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-label">${lang === 'bn' ? 'তারিখ ও সময়' : 'DATE & TIME'}:</span>
-            <span class="meta-value">${nowStr}  ${nowTimeStr}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-label">${lang === 'bn' ? 'গ্রাহকের নাম' : 'CLIENT'}:</span>
-            <span class="meta-value">${customerName}</span>
-          </div>
-          <div class="meta-row">
-            <span class="meta-label">${lang === 'bn' ? 'মোবাইল' : 'PHONE'}:</span>
-            <span class="meta-value">${customerPhone}</span>
-          </div>
-          
-          <!-- TABLE HEADER -->
-          <div class="table-header">
-            <span>${lang === 'bn' ? 'তারিখ / বিবরণ' : 'DATE / ITEM'}</span>
-            <span>${lang === 'bn' ? 'ধরন' : 'TYPE'}</span>
-            <span>${lang === 'bn' ? 'টাকা' : 'AMOUNT'}</span>
-          </div>
-          
-          <!-- TRANSACTION ITEMS -->
-          ${rowsHtml}
-          
-          <div class="receipt-double"></div>
-          
-          <!-- TOTALS SUMMARY -->
-          <div class="summary-section">
-            <div class="summary-row total-due">
-              <span>${lang === 'bn' ? 'মোট বকেয়া যুক্ত' : 'TOTAL DUES BILLED'}:</span>
-              <span>+ ৳ ${formatNumber(totalDuesCalculated, lang)}</span>
-            </div>
-            <div class="summary-row total-paid">
-              <span>${lang === 'bn' ? 'মোট জমা / পরিশোধ' : 'TOTAL PAID / RECEIVED'}:</span>
-              <span>- ৳ ${formatNumber(totalPaymentsCalculated, lang)}</span>
-            </div>
-          </div>
-          
-          <!-- NET BALANCE BOX -->
-          <div class="net-balance-box">
-            <div class="net-balance-label">${lang === 'bn' ? 'বর্তমান মোট স্থিতি' : 'CURRENT NET BALANCE'}</div>
-            <div class="net-balance-amount">${balanceAmountDisplay}</div>
-            <div class="net-balance-status">${statusText}</div>
-          </div>
-          
-          <div class="receipt-double"></div>
-          
-          <!-- BARCODE STRIP -->
-          <div class="barcode-container">
-            <div class="barcode-strip">
-              <span style="width: 2px;"></span>
-              <span style="width: 1px;"></span>
-              <span style="width: 3px;"></span>
-              <span style="width: 1px;"></span>
-              <span style="width: 4px;"></span>
-              <span style="width: 2px;"></span>
-              <span style="width: 1px;"></span>
-              <span style="width: 3px;"></span>
-              <span style="width: 2px;"></span>
-              <span style="width: 1px;"></span>
-              <span style="width: 4px;"></span>
-              <span style="width: 1px;"></span>
-              <span style="width: 2px;"></span>
-              <span style="width: 3px;"></span>
-              <span style="width: 1px;"></span>
-              <span style="width: 4px;"></span>
-              <span style="width: 2px;"></span>
-              <span style="width: 1px;"></span>
-              <span style="width: 3px;"></span>
-              <span style="width: 2px;"></span>
-              <span style="width: 1px;"></span>
-              <span style="width: 3px;"></span>
-              <span style="width: 2px;"></span>
-              <span style="width: 1px;"></span>
-            </div>
-            <div class="barcode-num">*${slipNo}*</div>
-          </div>
-          
-          <!-- FOOTER -->
-          <div class="footer-note">
-            <div>${lang === 'bn' ? '*** আমাদের সাথে লেনদেন করার জন্য ধন্যবাদ ***' : '*** THANK YOU FOR YOUR BUSINESS ***'}</div>
-            <div style="margin-top: 3px;">${lang === 'bn' ? 'চালান ট্র্যাক ডিজিটাল পিওএস রসিদ' : 'DIGITAL POS TRANSACTION SLIP'}</div>
-            <div style="font-size: 7.5px; color: #777777; margin-top: 2px;">VALID WITHOUT SIGNATURE • CHALLAN TRACK</div>
-          </div>
-          
-          <!-- BOTTOM TEAR LINE -->
-          <div class="receipt-cut" style="margin-top: 8px;"></div>
-        </div>
-      </body>
-      </html>
-    `;
-
-    doc.open();
-    doc.write(reportHtml);
-    doc.close();
-    
-    iframe.contentWindow?.focus();
-    iframe.contentWindow?.print();
-    
-    setTimeout(() => {
-      document.body.removeChild(iframe);
-    }, 1000);
+    setIsGeneratingReceipt(true);
+    triggerHaptic('single');
+    try {
+      const result = await generateReceiptPng(selectedCustomer, selectedCustomerTransactions, lang);
+      setReceiptResult(result);
+      window.history.pushState({ modal: 'receiptPreview' }, '');
+      // Automatically trigger PNG download
+      downloadReceiptImage(result.dataUrl, result.fileName);
+      toast.success(lang === 'bn' ? 'রসিদ ইমেজ তৈরি ও ডাউনলোড হয়েছে' : 'Receipt image generated & downloaded');
+    } catch (err) {
+      console.error('Receipt generation error:', err);
+      toast.error(lang === 'bn' ? 'রসিদ ইমেজ তৈরি করতে সমস্যা হয়েছে' : 'Failed to generate receipt image');
+    } finally {
+      setIsGeneratingReceipt(false);
+    }
   };
 
   const groupedTransactions = useMemo(() => {
@@ -1550,11 +1179,16 @@ if (sortBy === 'custom') {
       </button>
       <button
         type="button"
-        onClick={handlePrintTransactions}
+        onClick={handleGenerateReceiptImage}
+        disabled={isGeneratingReceipt}
         className="p-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-755 text-zinc-655 border border-zinc-200 dark:border-zinc-700 rounded-full transition-all cursor-pointer flex items-center justify-center shadow-md animate-in fade-in"
-        title={lang === 'bn' ? 'রিপোর্ট প্রিন্ট করুন' : 'Print Report'}
+        title={lang === 'bn' ? 'রসিদ ইমেজ তৈরি ও ডাউনলোড করুন' : 'Generate & Download Receipt Image'}
       >
-        <Printer className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+        {isGeneratingReceipt ? (
+          <RefreshCw className="w-4 h-4 text-zinc-500 animate-spin" />
+        ) : (
+          <ReceiptText className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+        )}
       </button>
       <button
         type="button"
@@ -2544,6 +2178,109 @@ if (sortBy === 'custom') {
           >
             {t.cancel}
           </button>
+        </div>
+      </motion.div>
+    </div>
+  )}
+
+  {/* RECEIPT IMAGE PREVIEW MODAL */}
+  {receiptResult && (
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150"
+      onClick={() => setReceiptResult(null)}
+    >
+      <motion.div
+        onClick={(e) => e.stopPropagation()}
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="bg-white dark:bg-zinc-900 w-full max-w-sm sm:max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] border border-zinc-200 dark:border-zinc-800"
+      >
+        {/* Modal Header */}
+        <div className="p-4 px-5 border-b border-zinc-150 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/50">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 shrink-0">
+              <ReceiptText className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-extrabold text-sm text-zinc-900 dark:text-white truncate">
+                {lang === 'bn' ? 'ডিজিটাল রসিদ স্লিপ' : 'Digital Receipt Slip'}
+              </h3>
+              <p className="text-[11px] font-semibold text-zinc-400 truncate">
+                {receiptResult.fileName}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReceiptResult(null)}
+            className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer shrink-0 ml-2"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Image Preview Container */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-zinc-100/70 dark:bg-zinc-950/70 flex justify-center items-start hide-scrollbar">
+          <div className="max-w-[340px] w-full rounded-2xl shadow-xl overflow-hidden ring-1 ring-black/10 dark:ring-white/10 bg-white">
+            <img 
+              src={receiptResult.dataUrl} 
+              alt="Customer Receipt" 
+              className="w-full h-auto block select-none"
+            />
+          </div>
+        </div>
+
+        {/* Actions Footer */}
+        <div className="p-4 border-t border-zinc-150 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-2">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('single');
+                downloadReceiptImage(receiptResult.dataUrl, receiptResult.fileName);
+                toast.success(lang === 'bn' ? 'পুনরায় ডাউনলোড হয়েছে' : 'Downloaded again');
+              }}
+              className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>{lang === 'bn' ? 'ডাউনলোড PNG' : 'Download PNG'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={async () => {
+                triggerHaptic('single');
+                const success = await copyReceiptImage(receiptResult.blob);
+                if (success) {
+                  setIsCopiedReceipt(true);
+                  toast.success(lang === 'bn' ? 'ছবি ক্লিপবোর্ডে কপি হয়েছে (হোয়াটসঅ্যাপে পেস্ট করুন)' : 'Image copied to clipboard');
+                  setTimeout(() => setIsCopiedReceipt(false), 2500);
+                } else {
+                  toast.error(lang === 'bn' ? 'কপি সমর্থিত নয়, ডাউনলোড বাটন ব্যবহার করুন' : 'Copy not supported on this browser');
+                }
+              }}
+              className="px-3.5 py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              title={lang === 'bn' ? 'ক্লিপবোর্ডে কপি করুন' : 'Copy Image'}
+            >
+              {isCopiedReceipt ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+              <span className="hidden sm:inline">{isCopiedReceipt ? (lang === 'bn' ? 'কপি হয়েছে' : 'Copied!') : (lang === 'bn' ? 'কপি' : 'Copy')}</span>
+            </button>
+
+            {typeof navigator !== 'undefined' && 'canShare' in navigator && (
+              <button
+                type="button"
+                onClick={async () => {
+                  triggerHaptic('single');
+                  await shareReceiptImage(receiptResult.blob, receiptResult.fileName, selectedCustomer?.name || 'Customer');
+                }}
+                className="px-3.5 py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                title={lang === 'bn' ? 'শেয়ার করুন' : 'Share'}
+              >
+                <Share2 className="w-4 h-4" />
+                <span className="hidden sm:inline">{lang === 'bn' ? 'শেয়ার' : 'Share'}</span>
+              </button>
+            )}
+          </div>
         </div>
       </motion.div>
     </div>
