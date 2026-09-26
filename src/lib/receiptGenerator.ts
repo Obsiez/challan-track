@@ -32,8 +32,8 @@ function drawReceiptSilhouette(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  toothW = 8,
-  toothH = 4
+  toothW = 6,
+  toothH = 3.5
 ) {
   ctx.beginPath();
   ctx.moveTo(0, toothH);
@@ -67,7 +67,7 @@ function drawDashedLine(
   y: number,
   x1: number,
   x2: number,
-  color = '#262931',
+  color = '#282B33',
   dash = [4, 3]
 ) {
   ctx.save();
@@ -86,7 +86,7 @@ function drawDoubleLine(
   y: number,
   x1: number,
   x2: number,
-  color = '#2A2E38'
+  color = '#333742'
 ) {
   ctx.save();
   ctx.strokeStyle = color;
@@ -126,7 +126,7 @@ export interface ReceiptImageResult {
 }
 
 /**
- * Generates an authentic, dark-background, minimalist POS receipt PNG image.
+ * Generates an authentic, slender vertical POS receipt PNG image using thermal monospace fonts.
  */
 export async function generateReceiptPng(
   customer: Customer,
@@ -157,14 +157,14 @@ export async function generateReceiptPng(
   const isSettled = outstandingDue === 0;
   const isDue = outstandingDue > 0;
 
-  // Layout Constants - Ultra-compact, clean 2-line layout
-  const scale = 2; // 2x Retina resolution for sharp rendering
-  const width = 480;
-  const padX = 26;
+  // Slender vertical thermal roll dimensions (370px width = authentic 1:2+ aspect ratio)
+  const scale = 2; // 2x Retina resolution for razor-sharp thermal typography
+  const width = 370;
+  const padX = 18;
   const contentWidth = width - padX * 2;
-  const toothH = 4;
+  const toothH = 3.5;
 
-  const getRowHeight = (tx: Transaction) => (tx?.description?.trim() ? 40 : 26);
+  const getRowHeight = (tx: Transaction) => (tx?.description?.trim() ? 42 : 26);
   const rowsHeight = safeTransactions.length > 0 
     ? safeTransactions.reduce((acc, tx) => acc + getRowHeight(tx), 0)
     : 34;
@@ -204,46 +204,44 @@ export async function generateReceiptPng(
 
   ctx.scale(scale, scale);
 
-  // Background: Dark, authentic thermal slip receipt
+  // Background: Deep dark thermal receipt paper
   ctx.save();
-  drawReceiptSilhouette(ctx, width, totalHeight, 8, toothH);
-  ctx.fillStyle = '#111215'; // Deep charcoal/black receipt paper
+  drawReceiptSilhouette(ctx, width, totalHeight, 6, toothH);
+  ctx.fillStyle = '#111215'; // Authentic deep charcoal thermal receipt background
   ctx.fill();
-  ctx.strokeStyle = '#23262D'; // Subtle outer edge line
+  ctx.strokeStyle = '#22252C'; // Subtle outer edge cut stroke
   ctx.lineWidth = 1;
   ctx.stroke();
   ctx.restore();
 
-  // Typography font families
-  const monoFont = (size: number, weight = 'normal') =>
-    `${weight} ${size}px "SF Mono", "Roboto Mono", Menlo, Consolas, "Noto Sans Bengali", monospace`;
-  const sansFont = (size: number, weight = 'normal') =>
-    `${weight} ${size}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Noto Sans Bengali", sans-serif`;
+  // Authentic POS thermal receipt font stack
+  const posFont = (size: number, weight = 'normal') =>
+    `${weight} ${size}px "Courier Prime", "Space Mono", "Courier New", Courier, "Lucida Console", "Liberation Mono", "Noto Sans Bengali", monospace`;
 
   let curY = topPad;
 
-  // 1. BRAND & HEADER (Minimalist receipt style)
+  // 1. BRAND & HEADER (Thermal printer monospace style)
   ctx.textAlign = 'center';
   ctx.fillStyle = '#F3F4F6';
-  ctx.font = monoFont(17, 'bold');
+  ctx.font = posFont(16, 'bold');
   ctx.fillText('CHALLAN TRACK', width / 2, curY + 16);
 
   ctx.fillStyle = '#9CA3AF';
-  ctx.font = monoFont(10, 'normal');
+  ctx.font = posFont(9.5, 'normal');
   ctx.fillText(lang === 'bn' ? 'লেনদেন রসিদ ও হিসাব' : 'TRANSACTION RECEIPT', width / 2, curY + 32);
 
   curY += headerHeight;
   drawDashedLine(ctx, curY, padX, width - padX);
   curY += 8;
 
-  // 2. METADATA SECTION (Compact key-value text)
+  // 2. METADATA SECTION (Clean monospace key-values)
   const now = new Date();
   const dateStr = now.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { day: '2-digit', month: 'short', year: 'numeric' });
   const timeStr = now.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' });
 
   // Slip & Date
   ctx.textAlign = 'left';
-  ctx.font = monoFont(10, 'bold');
+  ctx.font = posFont(9.5, 'bold');
   ctx.fillStyle = '#9CA3AF';
   ctx.fillText(`${lang === 'bn' ? 'রসিদ' : 'SLIP'}: `, padX, curY + 12);
   ctx.fillStyle = '#F3F4F6';
@@ -251,39 +249,39 @@ export async function generateReceiptPng(
 
   ctx.textAlign = 'right';
   ctx.fillStyle = '#9CA3AF';
-  ctx.font = monoFont(9.5, 'normal');
+  ctx.font = posFont(9, 'normal');
   ctx.fillText(`${dateStr} ${timeStr}`, width - padX, curY + 12);
 
   // Client & Phone
+  const displayCustName = customerName.length > 22 ? customerName.slice(0, 20) + '..' : customerName;
   ctx.textAlign = 'left';
+  ctx.font = posFont(9.5, 'bold');
   ctx.fillStyle = '#9CA3AF';
-  ctx.font = monoFont(10, 'bold');
   ctx.fillText(`${lang === 'bn' ? 'গ্রাহক' : 'CLIENT'}: `, padX, curY + 28);
   ctx.fillStyle = '#F3F4F6';
-  ctx.font = sansFont(11.5, 'bold');
-  ctx.fillText(customerName, padX + 54, curY + 28);
+  ctx.fillText(displayCustName, padX + 52, curY + 28);
 
   ctx.textAlign = 'left';
   ctx.fillStyle = '#9CA3AF';
-  ctx.font = monoFont(10, 'bold');
+  ctx.font = posFont(9.5, 'bold');
   ctx.fillText(`${lang === 'bn' ? 'ফোন' : 'PHONE'}: `, padX, curY + 44);
   ctx.fillStyle = '#D1D5DB';
-  ctx.font = monoFont(10.5, 'normal');
-  ctx.fillText(customerPhone, padX + 54, curY + 44);
+  ctx.font = posFont(9.5, 'normal');
+  ctx.fillText(customerPhone, padX + 52, curY + 44);
 
   curY += metaHeight;
   drawDashedLine(ctx, curY, padX, width - padX);
   curY += 6;
 
-  // 3. TABLE HEADER (Compact monospace columns)
-  ctx.font = monoFont(9.5, 'bold');
+  // 3. TABLE HEADER (Slender 3-column POS layout)
+  ctx.font = posFont(9, 'bold');
   ctx.fillStyle = '#9CA3AF';
 
   ctx.textAlign = 'left';
   ctx.fillText(lang === 'bn' ? 'তারিখ / বিবরণ' : 'DATE / ITEM', padX, curY + 11);
 
   ctx.textAlign = 'center';
-  ctx.fillText(lang === 'bn' ? 'ধরন' : 'TYPE', padX + contentWidth * 0.62, curY + 11);
+  ctx.fillText(lang === 'bn' ? 'ধরন' : 'TYPE', padX + contentWidth * 0.58, curY + 11);
 
   ctx.textAlign = 'right';
   ctx.fillText(lang === 'bn' ? 'টাকা' : 'AMOUNT', width - padX, curY + 11);
@@ -292,11 +290,11 @@ export async function generateReceiptPng(
   drawDashedLine(ctx, curY, padX, width - padX);
   curY += 6;
 
-  // 4. TRANSACTION ROWS (Compact 2-line max design)
+  // 4. TRANSACTION ROWS (Compact 2-line max layout)
   if (safeTransactions.length === 0) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#6B7280';
-    ctx.font = monoFont(10, 'normal');
+    ctx.font = posFont(9.5, 'normal');
     ctx.fillText(lang === 'bn' ? 'কোন লেনদেন নেই' : 'No transactions recorded', width / 2, curY + 18);
     curY += 34;
   } else {
@@ -309,32 +307,32 @@ export async function generateReceiptPng(
       const sign = isTxDue ? '+' : '-';
       const amountStr = `${sign}৳${safeFormatNumber(tx.amount, lang)}`;
       const hasDesc = !!tx.description?.trim();
-      const rowH = hasDesc ? 40 : 26;
+      const rowH = hasDesc ? 42 : 26;
 
-      // Line 1: Date, Type, Amount
+      // Line 1: Date & Time, Type Badge, Amount
       ctx.textAlign = 'left';
       ctx.fillStyle = '#E5E7EB';
-      ctx.font = monoFont(10, 'normal');
+      ctx.font = posFont(9.5, 'normal');
       ctx.fillText(`${rowDateStr} ${rowTimeStr}`, padX, curY + 13);
 
       ctx.textAlign = 'center';
       ctx.fillStyle = isTxDue ? '#e0385e' : '#009966';
-      ctx.font = monoFont(9.5, 'bold');
-      ctx.fillText(`[${typeLabel}]`, padX + contentWidth * 0.62, curY + 13);
+      ctx.font = posFont(9, 'bold');
+      ctx.fillText(`[${typeLabel}]`, padX + contentWidth * 0.58, curY + 13);
 
       ctx.textAlign = 'right';
       ctx.fillStyle = isTxDue ? '#e0385e' : '#009966';
-      ctx.font = monoFont(11, 'bold');
+      ctx.font = posFont(10.5, 'bold');
       ctx.fillText(amountStr, width - padX, curY + 13);
 
-      // Line 2: Note / Description (compact indented)
+      // Line 2: Note / Description (indented on line 2)
       if (hasDesc) {
         ctx.textAlign = 'left';
         ctx.fillStyle = '#9CA3AF';
-        ctx.font = sansFont(9.5, 'italic');
+        ctx.font = posFont(9, 'normal');
         const descText = tx.description!.trim();
-        const truncatedDesc = descText.length > 44 ? descText.slice(0, 42) + '...' : descText;
-        ctx.fillText(`↳ ${truncatedDesc}`, padX + 8, curY + 28);
+        const truncatedDesc = descText.length > 32 ? descText.slice(0, 30) + '..' : descText;
+        ctx.fillText(`↳ ${truncatedDesc}`, padX + 6, curY + 28);
       }
 
       curY += rowH;
@@ -345,30 +343,30 @@ export async function generateReceiptPng(
   drawDashedLine(ctx, curY, padX, width - padX);
   curY += 8;
 
-  // 5. TOTALS SECTION (Clean inline lines without chunky boxes)
-  ctx.font = monoFont(10, 'normal');
+  // 5. TOTALS SECTION (Clean monospace rows)
+  ctx.font = posFont(9.5, 'normal');
   ctx.fillStyle = '#9CA3AF';
   ctx.textAlign = 'left';
   ctx.fillText(lang === 'bn' ? 'মোট বকেয়া যুক্ত:' : 'Total Dues Added:', padX, curY + 12);
   ctx.textAlign = 'right';
   ctx.fillStyle = '#e0385e';
-  ctx.font = monoFont(11, 'bold');
+  ctx.font = posFont(10.5, 'bold');
   ctx.fillText(`+৳${safeFormatNumber(totalDuesCalculated, lang)}`, width - padX, curY + 12);
 
-  ctx.font = monoFont(10, 'normal');
+  ctx.font = posFont(9.5, 'normal');
   ctx.fillStyle = '#9CA3AF';
   ctx.textAlign = 'left';
   ctx.fillText(lang === 'bn' ? 'মোট জমা / পরিশোধ:' : 'Total Paid / Received:', padX, curY + 28);
   ctx.textAlign = 'right';
   ctx.fillStyle = '#009966';
-  ctx.font = monoFont(11, 'bold');
+  ctx.font = posFont(10.5, 'bold');
   ctx.fillText(`-৳${safeFormatNumber(totalPaymentsCalculated, lang)}`, width - padX, curY + 28);
 
   curY += totalsHeight;
   drawDoubleLine(ctx, curY, padX, width - padX);
   curY += 10;
 
-  // 6. BALANCE SECTION (Authentic receipt highlight, no bloated boxes)
+  // 6. BALANCE SECTION (Clear, authentic POS highlight)
   let statusColor = '#e0385e';
   let statusText = lang === 'bn' ? 'বকেয়া' : 'OUTSTANDING DUE';
 
@@ -385,18 +383,18 @@ export async function generateReceiptPng(
     : `${outstandingDue < 0 ? '-' : ''}৳ ${safeFormatNumber(Math.abs(outstandingDue), lang)}`;
 
   ctx.textAlign = 'left';
-  ctx.font = monoFont(10, 'bold');
+  ctx.font = posFont(9.5, 'bold');
   ctx.fillStyle = '#9CA3AF';
   ctx.fillText(lang === 'bn' ? 'বর্তমান মোট স্থিতি:' : 'CURRENT BALANCE:', padX, curY + 14);
 
   ctx.textAlign = 'right';
-  ctx.font = monoFont(9.5, 'bold');
+  ctx.font = posFont(9, 'bold');
   ctx.fillStyle = statusColor;
   ctx.fillText(`[ ${statusText} ]`, width - padX, curY + 14);
 
-  // Large crisp amount
+  // Large crisp monospace balance amount
   ctx.textAlign = 'center';
-  ctx.font = monoFont(22, 'bold');
+  ctx.font = posFont(21, 'bold');
   ctx.fillStyle = statusColor;
   ctx.fillText(balanceDisplay, width / 2, curY + 38);
 
@@ -404,21 +402,21 @@ export async function generateReceiptPng(
   drawDashedLine(ctx, curY, padX, width - padX);
   curY += 8;
 
-  // 7. BARCODE STRIP (Classic minimalist POS barcode)
+  // 7. BARCODE STRIP (Classic POS barcode)
   ctx.save();
   const barcodeY = curY;
-  const barcodeH = 20;
+  const barcodeH = 18;
   const barPattern = [2, 1, 3, 1, 4, 2, 1, 3, 2, 1, 4, 1, 2, 3, 1, 4, 2, 1, 3, 2, 1, 3, 2, 1, 4, 2, 1, 3, 1, 2, 4];
-  const barTotalW = barPattern.reduce((sum, w) => sum + w + 1.2, 0);
+  const barTotalW = barPattern.reduce((sum, w) => sum + w + 1.1, 0);
   let barCurX = (width - barTotalW) / 2;
 
   ctx.fillStyle = '#E5E7EB';
   barPattern.forEach((w) => {
     ctx.fillRect(barCurX, barcodeY, w, barcodeH);
-    barCurX += w + 1.2;
+    barCurX += w + 1.1;
   });
 
-  ctx.font = monoFont(8.5, 'bold');
+  ctx.font = posFont(8, 'bold');
   ctx.fillStyle = '#6B7280';
   ctx.textAlign = 'center';
   ctx.fillText(`* ${slipNo} *`, width / 2, barcodeY + barcodeH + 12);
@@ -426,10 +424,10 @@ export async function generateReceiptPng(
   curY += barcodeHeight;
   ctx.restore();
 
-  // 8. MINIMAL FOOTER (Professional, zero fluffy AI words)
+  // 8. MINIMAL FOOTER
   ctx.textAlign = 'center';
   ctx.fillStyle = '#9CA3AF';
-  ctx.font = monoFont(9.5, 'bold');
+  ctx.font = posFont(9, 'bold');
   ctx.fillText(
     lang === 'bn' ? '*** ধন্যবাদ ***' : '*** THANK YOU ***',
     width / 2,
