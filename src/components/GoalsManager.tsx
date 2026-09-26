@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Customer, SavingGoal, GoalContribution } from '../types';
 import { 
-  Target, Calendar, Plus, Users, Trash2, CheckCircle2, ChevronRight, X, Clock, AlertCircle, ReceiptText, AlertTriangle, HandCoins, PiggyBank, RotateCcw 
+  Target, Calendar, Plus, Users, Trash2, CheckCircle2, ChevronRight, X, AlertCircle, ReceiptText, AlertTriangle, PiggyBank, CalendarClock, RotateCcw, Goal 
 } from 'lucide-react';
 import { triggerHaptic } from '../lib/haptics';
 import { translations, Language, formatNumber, formatIndianNumberString } from '../lib/translations';
@@ -51,8 +51,8 @@ export default function GoalsManager({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [goalTitle, setGoalTitle] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
-  const [goalType, setGoalType] = useState<'savings' | 'deposit'>('savings');
-  const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'flexible'>('weekly');
+  const [goalType, setGoalType] = useState<'savings' | 'deposit'>('deposit'); // Default to EMI / Installment as it's most used
+  const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'flexible'>('monthly');
   const [installmentAmount, setInstallmentAmount] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [notes, setNotes] = useState('');
@@ -69,6 +69,18 @@ export default function GoalsManager({
   // Custom Confirmation Popups
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // 1. Disable background scrolling when modal is open
+  useEffect(() => {
+    if (showCreateModal || selectedGoal || showCancelConfirm || showDeleteConfirm) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showCreateModal, selectedGoal, showCancelConfirm, showDeleteConfirm]);
 
   // Computed lists
   const activeGoals = goals.filter(g => g.status === 'active');
@@ -140,8 +152,8 @@ export default function GoalsManager({
       if (res) {
         setGoalTitle('');
         setTargetAmount('');
-        setGoalType('savings');
-        setFrequency('weekly');
+        setGoalType('deposit');
+        setFrequency('monthly');
         setInstallmentAmount('');
         setSelectedCustomerId('');
         setNotes('');
@@ -211,28 +223,31 @@ export default function GoalsManager({
 
   return (
     <div className="space-y-6 no-select">
-      {/* HEADER SECTION */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-zinc-900 dark:text-white tracking-tight">
-            {t.goals}
-          </h1>
-        </div>
+      {/* 3 & 4. HEADER SECTION (MATCHING CLIENTS HEADER & BUTTON EXACTLY) */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h2 className="text-xl font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+          <Goal className="w-5 h-5 text-emerald-500" />
+          <span>{t.goalsHeaderTitle}</span>
+          <span className="text-sm font-semibold text-zinc-400 dark:text-zinc-500">
+            ({formatNumber(goals.length, lang)})
+          </span>
+        </h2>
 
         <button
           onClick={() => { triggerHaptic('single'); setShowCreateModal(true); }}
-          className="px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all cursor-pointer text-sm shrink-0"
+          className="px-5 py-3 bg-emerald-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-md shadow-emerald-100 dark:shadow-none hover:bg-emerald-700 transition-colors cursor-pointer text-base shrink-0"
+          id="create_goal_btn"
         >
           <Plus className="w-5 h-5 stroke-[2.5]" />
           {t.createGoal}
         </button>
       </div>
 
-      {/* FILTER TABS */}
-      <div className="flex bg-zinc-100 dark:bg-zinc-900 p-1.5 rounded-2xl border border-zinc-200 dark:border-zinc-800 max-w-sm">
+      {/* 2. FILTER TABS (FILLS OUT SCREEN LEFT TO RIGHT) */}
+      <div className="flex w-full bg-zinc-100 dark:bg-zinc-900 p-1.5 rounded-2xl border border-zinc-200 dark:border-zinc-800">
         <button
           onClick={() => { triggerHaptic('single'); setFilterTab('active'); }}
-          className={`flex-1 py-2.5 text-center text-xs font-black rounded-xl transition-all cursor-pointer ${
+          className={`flex-1 py-3 text-center text-sm font-black rounded-xl transition-all cursor-pointer ${
             filterTab === 'active'
               ? 'bg-white dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 shadow-sm'
               : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
@@ -242,7 +257,7 @@ export default function GoalsManager({
         </button>
         <button
           onClick={() => { triggerHaptic('single'); setFilterTab('history'); }}
-          className={`flex-1 py-2.5 text-center text-xs font-black rounded-xl transition-all cursor-pointer ${
+          className={`flex-1 py-3 text-center text-sm font-black rounded-xl transition-all cursor-pointer ${
             filterTab === 'history'
               ? 'bg-white dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 shadow-sm'
               : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
@@ -257,12 +272,13 @@ export default function GoalsManager({
         <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-12 text-center text-zinc-400 dark:text-zinc-500 flex flex-col items-center justify-center gap-3 animate-fade-in">
           <Target className="w-12 h-12 stroke-[1.5] text-zinc-300 dark:text-zinc-600" />
           <p className="font-bold text-base text-zinc-700 dark:text-zinc-300">{t.noGoals}</p>
-          <p className="text-xs max-w-xs">{lang === 'bn' ? 'ডিপিএস কিস্তি বা সঞ্চয় লক্ষ্য তৈরি করতে উপরের বাটনে চাপ দিন।' : 'Create savings structures or installment repayment goals using the button above.'}</p>
+          <p className="text-xs max-w-xs">{lang === 'bn' ? 'ইএমআই বা সঞ্চয় লক্ষ্য তৈরি করতে উপরের বাটনে চাপ দিন।' : 'Create EMI installment plans or savings targets using the button above.'}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {visibleGoals.map(goal => {
             const percent = Math.min(100, Math.round(((goal.savedAmount || 0) / (goal.targetAmount || 1)) * 100));
+            const isSavings = goal.type === 'savings';
             
             return (
               <div 
@@ -271,7 +287,7 @@ export default function GoalsManager({
                 className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-emerald-500/50 dark:hover:border-emerald-500/30 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all cursor-pointer relative group flex flex-col justify-between min-h-[180px]"
               >
                 <div>
-                  {/* Title & Badge */}
+                  {/* Title & Badge (Consistent Distinct Icons) */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <h3 className="text-[17px] font-black text-zinc-850 dark:text-white truncate leading-snug">
@@ -285,12 +301,16 @@ export default function GoalsManager({
                       )}
                     </div>
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase shrink-0 flex items-center gap-1 ${
-                      goal.type === 'savings' 
+                      isSavings 
                         ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400' 
                         : 'bg-rose-50 text-[#ec003f] dark:bg-rose-950/20 dark:text-rose-400'
                     }`}>
-                      <HandCoins className="w-3.5 h-3.5" />
-                      {goal.type === 'savings' ? t.savings : t.deposit}
+                      {isSavings ? (
+                        <PiggyBank className="w-3.5 h-3.5" />
+                      ) : (
+                        <CalendarClock className="w-3.5 h-3.5" />
+                      )}
+                      {isSavings ? t.savings : t.deposit}
                     </span>
                   </div>
 
@@ -321,7 +341,7 @@ export default function GoalsManager({
                       className={`h-full rounded-full transition-all duration-700 ${
                         goal.status === 'completed' 
                           ? 'bg-emerald-500' 
-                          : goal.type === 'savings' ? 'bg-emerald-500/80' : 'bg-[#ec003f]'
+                          : isSavings ? 'bg-emerald-500/80' : 'bg-[#ec003f]'
                       }`}
                       style={{ width: `${percent}%` }}
                     />
@@ -377,12 +397,26 @@ export default function GoalsManager({
             <form onSubmit={handleCreateGoal} className="flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 overflow-y-auto hide-scrollbar p-5 space-y-6">
                 
-                {/* 1. Goal Type Selection (GIANT BUTTONS) */}
+                {/* 5 & 6. Goal Type Selection (EMI / INSTALLMENT vs SAVINGS GOAL) */}
                 <div className="space-y-2">
                   <span className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">
                     {t.goalType}
                   </span>
                   <div className="grid grid-cols-2 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => { triggerHaptic('single'); setGoalType('deposit'); }}
+                      className={`py-5 px-4 rounded-2xl flex flex-col items-center justify-center gap-2 border-3 transition-all cursor-pointer ${
+                        goalType === 'deposit'
+                          ? 'bg-rose-50 border-[#ec003f] text-[#ec003f] dark:bg-rose-950/20 dark:border-[#ec003f] dark:text-rose-400 font-bold shadow-lg shadow-rose-100 dark:shadow-none'
+                          : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-150 dark:bg-zinc-850 dark:border-zinc-800 dark:text-zinc-400'
+                      }`}
+                    >
+                      <CalendarClock className="w-7 h-7 stroke-[2.5]" />
+                      <span className="text-lg font-black">{t.deposit}</span>
+                      <span className="text-xs opacity-80">{lang === 'bn' ? 'লোন, বাকি বা পণ্যের কিস্তি পরিশোধ' : 'Loan, credit or product EMI'}</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => { triggerHaptic('single'); setGoalType('savings'); }}
@@ -394,21 +428,7 @@ export default function GoalsManager({
                     >
                       <PiggyBank className="w-7 h-7 stroke-[2.5]" />
                       <span className="text-lg font-black">{t.savings}</span>
-                      <span className="text-xs opacity-80">{lang === 'bn' ? 'সঞ্চয় বা ডিপিএস স্কিম' : 'Savings or DPS Scheme'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => { triggerHaptic('single'); setGoalType('deposit'); }}
-                      className={`py-5 px-4 rounded-2xl flex flex-col items-center justify-center gap-2 border-3 transition-all cursor-pointer ${
-                        goalType === 'deposit'
-                          ? 'bg-rose-50 border-[#ec003f] text-[#ec003f] dark:bg-rose-950/20 dark:border-[#ec003f] dark:text-rose-400 font-bold shadow-lg shadow-rose-100 dark:shadow-none'
-                          : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-150 dark:bg-zinc-850 dark:border-zinc-800 dark:text-zinc-400'
-                      }`}
-                    >
-                      <Clock className="w-7 h-7 stroke-[2.5]" />
-                      <span className="text-lg font-black">{t.deposit}</span>
-                      <span className="text-xs opacity-80">{lang === 'bn' ? 'ফিক্সড ডিপোজিট / কিস্তি' : 'Fixed Deposit / Repayment'}</span>
+                      <span className="text-xs opacity-80">{lang === 'bn' ? 'ভবিষ্যতের জন্য সঞ্চয় বা ডিপিএস' : 'Savings or DPS Scheme'}</span>
                     </button>
                   </div>
                 </div>
@@ -421,7 +441,7 @@ export default function GoalsManager({
                   <input
                     type="text"
                     required
-                    placeholder={lang === 'bn' ? 'লক্ষ্যের শিরোনাম লিখুন (যেমন: বাড়ি নির্মাণ, সঞ্চয় স্কিম)' : 'Enter goal title (e.g. House Construction, Savings Scheme)'}
+                    placeholder={lang === 'bn' ? 'লক্ষ্যের শিরোনাম লিখুন (যেমন: টিভি কিস্তি, বাড়ি নির্মাণ)' : 'Enter goal title (e.g. TV Installment, House Construction)'}
                     value={goalTitle}
                     onChange={(e) => setGoalTitle(e.target.value)}
                     className="w-full px-4 py-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-900 dark:text-white font-bold text-base focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
@@ -507,9 +527,9 @@ export default function GoalsManager({
                       onChange={(e: any) => setFrequency(e.target.value)}
                       className="w-full px-3 py-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-850 dark:text-white font-bold text-base focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 cursor-pointer"
                     >
+                      <option value="monthly">{t.monthly}</option>
                       <option value="weekly">{t.weekly}</option>
                       <option value="daily">{t.daily}</option>
-                      <option value="monthly">{t.monthly}</option>
                       <option value="flexible">{t.flexible}</option>
                     </select>
                   </div>
@@ -591,7 +611,7 @@ export default function GoalsManager({
 
           <div className="bg-white dark:bg-zinc-900 w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col animate-slide-up relative z-10">
             
-            {/* Header */}
+            {/* Header (Consistent distinct icons) */}
             <div className="p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
               <div className="min-w-0 pr-2">
                 <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider inline-flex items-center gap-1 ${
@@ -599,7 +619,11 @@ export default function GoalsManager({
                     ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400' 
                     : 'bg-rose-50 text-[#ec003f] dark:bg-rose-950/20 dark:text-rose-400'
                 }`}>
-                  <HandCoins className="w-3.5 h-3.5" />
+                  {selectedGoal.type === 'savings' ? (
+                    <PiggyBank className="w-3.5 h-3.5" />
+                  ) : (
+                    <CalendarClock className="w-3.5 h-3.5" />
+                  )}
                   {selectedGoal.type === 'savings' ? t.savings : t.deposit}
                 </span>
                 <h3 className="text-xl font-bold text-zinc-900 dark:text-white truncate leading-snug mt-1.5">
