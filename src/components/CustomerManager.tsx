@@ -1337,8 +1337,8 @@ if (sortBy === 'custom') {
         onClick={() => { triggerHaptic('single'); setFilterStatus('overpaid'); }}
         className={`px-3.5 py-2 rounded-xl font-bold text-sm transition-colors shrink-0 cursor-pointer ${
           filterStatus === 'overpaid'
-            ? 'bg-cyan-600 text-white shadow-sm border border-cyan-600'
-            : 'bg-white text-cyan-600 border border-cyan-200 dark:bg-zinc-900 dark:border-cyan-500/30 dark:text-cyan-400 hover:bg-cyan-50/30 dark:hover:bg-cyan-950/10'
+            ? 'bg-blue-600 text-white shadow-sm border border-blue-600'
+            : 'bg-white text-blue-600 border border-blue-200 dark:bg-zinc-900 dark:border-blue-500/30 dark:text-blue-400 hover:bg-blue-50/30 dark:hover:bg-blue-950/10'
         }`}
       >
         {lang === 'bn' ? 'অতিরিক্ত জমা' : 'Overpaid'} ({formatNumber(customers.filter(c => c.outstandingDue < 0).length, lang)})
@@ -1486,25 +1486,26 @@ if (sortBy === 'custom') {
  							window.history.replaceState({ tab: 'customers', customerId: c.id, modal: null, quickEntry: false }, '', `?tab=customers&c=${c.id}`);
  							setSelectedCustomerId(c.id);
  						}}
- 						className="text-base font-bold text-zinc-900 dark:text-white truncate flex items-center gap-1.5"
+ 						className="text-lg font-bold text-zinc-900 dark:text-white truncate flex items-center gap-1.5"
  					>
  						<span>{c.name}</span>
  						{pinnedCustomerNames.includes(c.name) && (
- 							<Pin className="w-3.5 h-3.5 text-amber-500 fill-amber-500 rotate-45 shrink-0" />
+ 							<Pin className="w-4 h-4 text-amber-500 fill-amber-500 rotate-45 shrink-0" />
  						)}
  					</div>
- 					<div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
- 						{c.phone || (lang === 'bn' ? '(ফোন নম্বর নেই)' : '(No phone)')}
+ 					<div className="text-sm text-zinc-500 dark:text-zinc-400 mt-1 flex items-center gap-1.5">
+ 						<Phone className="w-3.5 h-3.5 shrink-0 text-zinc-400 dark:text-zinc-500" />
+ 						<span className="truncate">{c.phone || (lang === 'bn' ? '(ফোন নম্বর নেই)' : '(No phone)')}</span>
  					</div>
  				</div>
- 				<div className="text-right shrink-0 flex items-center gap-1">
+ 				<div className="text-right shrink-0 flex items-center gap-1 -mr-[2px]">
  					<div className="min-w-0 pr-1">
- 						<div className={`text-lg font-black truncate ${
+ 						<div className={`text-xl font-black truncate ${
  							c.outstandingDue > 0
  								? 'text-rose-600 dark:text-rose-400'
  								: c.outstandingDue < 0
- 									? 'text-emerald-600 dark:text-emerald-400'
- 									: 'text-zinc-400'
+ 									? 'text-blue-600 dark:text-blue-400'
+ 									: 'text-emerald-600 dark:text-emerald-400'
  						}`}>
  							{c.outstandingDue === 0 ? (
  								lang === 'bn' ? '০.০০' : '0.00'
@@ -1512,7 +1513,7 @@ if (sortBy === 'custom') {
  								`${c.outstandingDue < 0 ? '-' : ''}${formatNumber(Math.abs(c.outstandingDue), lang)}`
  							)}
  						</div>
- 						<div className="text-xs font-black text-zinc-400 mt-0.5">
+ 						<div className="text-sm font-bold text-zinc-400 dark:text-zinc-500 mt-0.5">
  							{c.outstandingDue > 0 ? (
  								lang === 'bn' ? 'পাবেন' : 'due'
  							) : c.outstandingDue < 0 ? (
@@ -1722,10 +1723,10 @@ if (sortBy === 'custom') {
  <span className="text-2xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block">{t.currentBalance}</span>
  <span className={`text-2xl font-black mt-1 ${
  selectedCustomer.outstandingDue > 0 
- ? 'text-rose-600 dark:text-rose-450' 
+ ? 'text-rose-600 dark:text-rose-400' 
  : selectedCustomer.outstandingDue < 0 
- ? 'text-cyan-600 dark:text-cyan-400' 
- : 'text-zinc-500 dark:text-zinc-400'
+ ? 'text-blue-600 dark:text-blue-400' 
+ : 'text-emerald-600 dark:text-emerald-400'
  }`}>
  {selectedCustomer.outstandingDue === 0 ? t.settled : `৳ ${formatNumber(selectedCustomer.outstandingDue, lang)}`}
  </span>
