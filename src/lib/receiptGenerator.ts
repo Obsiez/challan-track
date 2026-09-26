@@ -136,6 +136,7 @@ export async function generateReceiptPng(
   const metaSpacing = 16;
   const tableHeaderHeight = 32;
   const tableMargin = 6;
+  const tableSpacing = 12;
   const totalsBoxHeight = 68;
   const totalsSpacing = 14;
   const netBoxHeight = 84;
@@ -153,6 +154,7 @@ export async function generateReceiptPng(
     + tableHeaderHeight 
     + tableMargin 
     + rowsHeight 
+    + tableSpacing 
     + totalsBoxHeight 
     + totalsSpacing 
     + netBoxHeight 
