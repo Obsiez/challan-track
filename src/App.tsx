@@ -357,14 +357,42 @@ export default function App() {
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
       console.error('Google Auth Failed: ', err);
+      const errCode = err?.code || '';
       const errMsg = err?.message || String(err);
+
+      // If user closed the popup window, do not trigger a disruptive error alert
+      if (errCode === 'auth/popup-closed-by-user') {
+        setGoogleLoading(false);
+        return;
+      }
+
       setAuthError(errMsg);
-      
+
+      let userFriendlyMessage = lang === 'bn' 
+        ? 'গুগল লগইন করতে সমস্যা হয়েছে। অনুগ্রহ করে ইন্টারনেট সংযোগটি চেক করুন এবং আবার চেষ্টা করুন।' 
+        : 'Google sign-in could not connect. Please check your internet connection and try again.';
+
+      if (errCode === 'auth/operation-not-allowed') {
+        userFriendlyMessage = lang === 'bn'
+          ? 'ফায়ারবেস কনসোলে গুগল লগইন সক্রিয় (Enable) করা নেই। অনুগ্রহ করে Firebase Console > Authentication > Sign-in method-এ গিয়ে Google সক্রিয় করুন।'
+          : 'Google Sign-In is not enabled yet in your Firebase Console. Please go to Firebase Console > Authentication > Sign-in method and enable Google.';
+      } else if (errCode === 'auth/unauthorized-domain') {
+        userFriendlyMessage = lang === 'bn'
+          ? `এই ডোমেনটি (${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}) ফায়ারবেসে অনুমোদিত নয়। অনুগ্রহ করে Firebase Console > Authentication > Settings > Authorized domains-এ এই ডোমেনটি যুক্ত করুন।`
+          : `This domain (${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}) is not authorized for OAuth in Firebase. Please add it to Firebase Console > Authentication > Settings > Authorized domains.`;
+      } else if (errCode === 'auth/popup-blocked') {
+        userFriendlyMessage = lang === 'bn'
+          ? 'ব্রাউজার পপআপ উইন্ডোটি ব্লক করেছে। অনুগ্রহ করে এই সাইটের জন্য পপআপ অনুমতি দিন।'
+          : 'The sign-in popup was blocked by your browser. Please allow popups for this site and try again.';
+      } else if (errCode === 'auth/api-key-not-valid' || errMsg.includes('API key not valid')) {
+        userFriendlyMessage = lang === 'bn'
+          ? 'ফায়ারবেস এপিআই কী লোড হতে সমস্যা হয়েছে। অনুগ্রহ করে টার্মিনালে npm run dev কমান্ডটি রিস্টার্ট (Ctrl+C করে আবার চালু) করুন।'
+          : 'Firebase API key could not be verified. Please restart your Vite dev server (Ctrl+C and npm run dev) to load the new .env credentials.';
+      }
+
       triggerAlert(
         lang === 'bn' ? 'লগইন ব্যর্থ' : 'Login Failed',
-        lang === 'bn' 
-          ? 'গুগল লগইন করতে সমস্যা হয়েছে। অনুগ্রহ করে ইন্টারনেট সংযোগটি চেক করুন এবং আবার চেষ্টা করুন।' 
-          : 'Google sign-in could not connect. Please check your internet connection and try again.'
+        `${userFriendlyMessage}${errCode ? `\n[${errCode}]` : ''}`
       );
     } finally {
       setGoogleLoading(false);
