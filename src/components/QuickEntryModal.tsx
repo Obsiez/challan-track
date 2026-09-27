@@ -171,20 +171,32 @@ export default function QuickEntryModal({
       return isNaN(parsed.getTime()) ? new Date() : parsed;
     };
 
-    const customerTxs = transactions
-      .filter(t => t.customerId === selectedCustomerId)
-      .sort((a, b) => {
-        const dateA = parseDate(a.createdAt || a.date);
-        const dateB = parseDate(b.createdAt || b.date);
-        return dateB.getTime() - dateA.getTime();
-      });
-    const last5 = customerTxs.slice(0, 5);
+    let customerTxs = transactions.filter(t => t.customerId === selectedCustomerId);
+    if (customerTxs.length === 0 && typeof localStorage !== 'undefined') {
+      try {
+        const customer = customers.find(c => c.id === selectedCustomerId);
+        const userId = customer?.userId;
+        if (userId) {
+          const cached = localStorage.getItem(`easy_due_txs_${userId}_${selectedCustomerId}`);
+          if (cached) {
+            customerTxs = JSON.parse(cached);
+          } else {
+            const allStored = localStorage.getItem(`easy_due_transactions_${userId}`);
+            if (allStored) {
+              customerTxs = JSON.parse(allStored).filter((t: any) => t.customerId === selectedCustomerId);
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
     const now = Date.now();
-    return last5.find(t => {
+    const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+    return customerTxs.find(t => {
       const tDate = parseDate(t.createdAt || t.date);
       return t.type === type && 
              Math.abs(t.amount - amountVal) < 0.01 && 
-             (now - tDate.getTime()) < 24 * 60 * 60 * 1000;
+             (now - tDate.getTime()) < twentyFourHoursMs;
     }) || null;
   };
 

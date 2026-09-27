@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Customer, SavingGoal, GoalContribution } from '../types';
+import { Customer, SavingGoal, GoalContribution, Reminder } from '../types';
 import { 
-  Target, Calendar, Plus, Users, Trash2, CheckCircle2, ChevronRight, ChevronDown, CreditCard, X, AlertCircle, ReceiptText, AlertTriangle, PiggyBank, CalendarClock, RotateCcw, Goal, Percent, Calculator 
+  Target, Calendar, Plus, Users, Trash2, CheckCircle2, ChevronRight, ChevronDown, CreditCard, X, AlertCircle, ReceiptText, AlertTriangle, PiggyBank, CalendarClock, RotateCcw, Goal, Percent, Calculator, Bell, BellRing, Info 
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { triggerHaptic } from '../lib/haptics';
@@ -34,6 +34,20 @@ interface GoalsManagerProps {
   ) => Promise<SavingGoal | null | void>;
   deleteGoal: (goalId: string) => Promise<void>;
   updateGoalStatus: (goalId: string, status: 'active' | 'completed' | 'cancelled') => Promise<void>;
+  reminders?: Reminder[];
+  addReminder?: (
+    customerId: string, 
+    notes: string, 
+    dueDate: Date,
+    extra?: {
+      type?: 'customer' | 'emi';
+      goalId?: string;
+      customerName?: string;
+      emiDayOfMonth?: number;
+      installmentAmount?: number;
+    }
+  ) => Promise<void>;
+  deleteReminder?: (id: string) => Promise<void>;
   lang: Language;
 }
 
@@ -45,6 +59,9 @@ export default function GoalsManager({
   addGoalContribution,
   deleteGoal,
   updateGoalStatus,
+  reminders = [],
+  addReminder,
+  deleteReminder,
   lang
 }: GoalsManagerProps) {
   const t = translations[lang];
@@ -82,9 +99,88 @@ export default function GoalsManager({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showReactivateConfirm, setShowReactivateConfirm] = useState(false);
 
+  // EMI Notification Reminder Modal State
+  const [emiReminderGoal, setEmiReminderGoal] = useState<SavingGoal | null>(null);
+  const [emiDueDay, setEmiDueDay] = useState<number>(5);
+  const [emiAlertTime, setEmiAlertTime] = useState<string>('09:00');
+  const [isSavingEmiReminder, setIsSavingEmiReminder] = useState(false);
+
+  const handleSaveEmiReminder = async () => {
+    if (!emiReminderGoal || !addReminder) return;
+    setIsSavingEmiReminder(true);
+    try {
+      // If an existing reminder exists for this goal, delete it first
+      const existing = reminders.find(r => r.goalId === emiReminderGoal.id);
+      if (existing && deleteReminder) {
+        await deleteReminder(existing.id);
+      }
+
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth();
+      const day = Math.min(31, Math.max(1, Number(emiDueDay)));
+      
+      let targetMonth = month;
+      let targetYear = year;
+      if (now.getDate() > day) {
+        targetMonth = month + 1;
+        if (targetMonth > 11) {
+          targetMonth = 0;
+          targetYear++;
+        }
+      }
+      const [hours, minutes] = emiAlertTime.split(':').map(Number);
+      const dueDate = new Date(targetYear, targetMonth, day, hours || 9, minutes || 0, 0);
+
+      await addReminder(
+        emiReminderGoal.customerId || '',
+        lang === 'bn' 
+          ? `${emiReminderGoal.title} - মাসিক কিস্তি পরিশোধের সময় এসেছে` 
+          : `${emiReminderGoal.title} - Monthly Installment Due`,
+        dueDate,
+        {
+          type: 'emi',
+          goalId: emiReminderGoal.id,
+          customerName: emiReminderGoal.title,
+          emiDayOfMonth: day,
+          installmentAmount: emiReminderGoal.installmentAmount || emiReminderGoal.targetAmount
+        }
+      );
+
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+          Notification.requestPermission();
+        }
+      }
+
+      triggerHaptic('double');
+      toast.success(
+        lang === 'bn' 
+          ? `মাসিক কিস্তির অ্যালার্ট সক্রিয় করা হয়েছে (প্রতি মাসের ${formatNumber(day, 'bn')} তারিখ)` 
+          : `EMI reminder set for day ${day} of every month!`
+      );
+      setEmiReminderGoal(null);
+    } catch (err) {
+      toast.error(lang === 'bn' ? 'রিমাইন্ডার সংরক্ষণ করা যায়নি।' : 'Failed to save reminder.');
+    } finally {
+      setIsSavingEmiReminder(false);
+    }
+  };
+
+  const handleRemoveEmiReminder = async () => {
+    if (!emiReminderGoal || !deleteReminder) return;
+    const existing = reminders.find(r => r.goalId === emiReminderGoal.id);
+    if (existing) {
+      await deleteReminder(existing.id);
+      triggerHaptic('single');
+      toast.info(lang === 'bn' ? 'কিস্তির অ্যালার্ট বন্ধ করা হয়েছে' : 'EMI reminder turned off');
+    }
+    setEmiReminderGoal(null);
+  };
+
   // 1. Disable background scrolling when ANY modal is active
   useEffect(() => {
-    if (showCreateModal || selectedGoal || showCancelConfirm || showDeleteConfirm || showReactivateConfirm) {
+    if (showCreateModal || selectedGoal || showCancelConfirm || showDeleteConfirm || showReactivateConfirm || emiReminderGoal) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
@@ -92,7 +188,7 @@ export default function GoalsManager({
     return () => {
       document.body.style.overflow = '';
     };
-  }, [showCreateModal, selectedGoal, showCancelConfirm, showDeleteConfirm, showReactivateConfirm]);
+  }, [showCreateModal, selectedGoal, showCancelConfirm, showDeleteConfirm, showReactivateConfirm, emiReminderGoal]);
 
   useEffect(() => {
     setIsEmiBreakdownOpen(false);
@@ -443,18 +539,50 @@ export default function GoalsManager({
                         </p>
                       )}
                     </div>
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase shrink-0 flex items-center gap-1 ${
-                      isSavings 
-                        ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400' 
-                        : 'bg-rose-50 text-[#e0385e] dark:bg-rose-950/20 dark:text-rose-400'
-                    }`}>
-                      {isSavings ? (
-                        <PiggyBank className="w-3.5 h-3.5" />
-                      ) : (
-                        <CalendarClock className="w-3.5 h-3.5" />
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {goal.status === 'active' && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            triggerHaptic('single');
+                            setEmiReminderGoal(goal);
+                            const existing = reminders.find(r => r.goalId === goal.id && r.active);
+                            if (existing?.emiDayOfMonth) {
+                              setEmiDueDay(existing.emiDayOfMonth);
+                            }
+                          }}
+                          className={`p-1.5 rounded-full transition-colors cursor-pointer ${
+                            reminders.some(r => r.goalId === goal.id && r.active)
+                              ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+                              : 'text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                          }`}
+                          title={
+                            reminders.some(r => r.goalId === goal.id && r.active)
+                              ? (lang === 'bn' ? 'কিস্তির অ্যালার্ট সক্রিয় (৭ দিন আগে তাগাদা)' : 'EMI Alert Active (7-day advance reminder)')
+                              : (lang === 'bn' ? 'কিস্তির অ্যালার্ট সেট করুন' : 'Set EMI Reminder')
+                          }
+                        >
+                          {reminders.some(r => r.goalId === goal.id && r.active) ? (
+                            <BellRing className="w-4 h-4 text-amber-500 animate-pulse" />
+                          ) : (
+                            <Bell className="w-4 h-4" />
+                          )}
+                        </button>
                       )}
-                      {isSavings ? t.savings : t.deposit}
-                    </span>
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase shrink-0 flex items-center gap-1 ${
+                        isSavings 
+                          ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400' 
+                          : 'bg-rose-50 text-[#e0385e] dark:bg-rose-950/20 dark:text-rose-400'
+                      }`}>
+                        {isSavings ? (
+                          <PiggyBank className="w-3.5 h-3.5" />
+                        ) : (
+                          <CalendarClock className="w-3.5 h-3.5" />
+                        )}
+                        {isSavings ? t.savings : t.deposit}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Installment details */}
@@ -969,6 +1097,31 @@ export default function GoalsManager({
               </div>
               
               <div className="flex items-center gap-1.5 shrink-0">
+                {selectedGoal.status === 'active' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic('single');
+                      setEmiReminderGoal(selectedGoal);
+                      const existing = reminders.find(r => r.goalId === selectedGoal.id && r.active);
+                      if (existing?.emiDayOfMonth) {
+                        setEmiDueDay(existing.emiDayOfMonth);
+                      }
+                    }}
+                    className={`p-3 rounded-full transition-colors cursor-pointer ${
+                      reminders.some(r => r.goalId === selectedGoal.id && r.active)
+                        ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-550 dark:text-zinc-400 hover:text-amber-500'
+                    }`}
+                    title={lang === 'bn' ? 'কিস্তির নোটিফিকেশন রিমাইন্ডার' : 'EMI Notification Reminder'}
+                  >
+                    {reminders.some(r => r.goalId === selectedGoal.id && r.active) ? (
+                      <BellRing className="w-5 h-5 text-amber-500 animate-pulse" />
+                    ) : (
+                      <Bell className="w-5 h-5" />
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={openDeleteConfirmModal}
                   className="p-3 bg-zinc-100 hover:bg-rose-50 dark:bg-zinc-800 dark:hover:bg-rose-950/30 rounded-full text-zinc-550 hover:text-[#e0385e] dark:text-zinc-400 transition-colors cursor-pointer"
@@ -1560,6 +1713,160 @@ export default function GoalsManager({
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
                 className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer transition-colors"
+              >
+                {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* ── EMI NOTIFICATION REMINDER MODAL ── */}
+      {emiReminderGoal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-select overflow-hidden">
+          <div className="absolute inset-0" onClick={() => setEmiReminderGoal(null)} />
+
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className="bg-white dark:bg-zinc-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col relative z-10"
+          >
+            {/* Header */}
+            <div className="p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-xl">
+                  <BellRing className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-zinc-900 dark:text-white leading-tight">
+                    {lang === 'bn' ? 'কিস্তি রিমাইন্ডার' : 'Monthly EMI Reminder'}
+                  </h3>
+                  <p className="text-xs text-zinc-450 dark:text-zinc-500 font-semibold truncate max-w-[220px]">
+                    {emiReminderGoal.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEmiReminderGoal(null)}
+                className="p-2.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-full text-zinc-500 dark:text-zinc-400 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 overflow-y-auto hide-scrollbar">
+              {/* 7-day prior notice banner */}
+              <div className="p-3.5 bg-amber-50 dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-xs text-amber-800 dark:text-amber-300 font-bold flex items-start gap-2.5 leading-relaxed">
+                <Info className="w-4.5 h-4.5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                <span>
+                  {lang === 'bn'
+                    ? 'প্রতি মাসে আপনার কিস্তির নির্ধারিত তারিখের ৭ দিন আগে থেকে প্রতিদিন নোটিফিকেশন অ্যালার্ট পাঠানো হবে যাতে সময়মতো কিস্তি পরিশোধ করা যায়।'
+                    : 'A notification will be sent each day 7 days prior to remind you that your upcoming monthly EMI installment is due.'}
+                </span>
+              </div>
+
+              {/* Goal Snapshot */}
+              <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-850 p-4 rounded-2xl flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="text-[10px] font-extrabold uppercase text-zinc-400 dark:text-zinc-500 block">
+                    {lang === 'bn' ? 'কিস্তির পরিমাণ' : 'Installment Amount'}
+                  </span>
+                  <span className="text-lg font-black text-zinc-900 dark:text-white">
+                    ৳{formatNumber(emiReminderGoal.installmentAmount || emiReminderGoal.targetAmount, lang)}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-extrabold uppercase text-zinc-400 dark:text-zinc-500 block">
+                    {lang === 'bn' ? 'ধরন' : 'Type'}
+                  </span>
+                  <span className="text-xs font-black text-rose-500 uppercase">
+                    {emiReminderGoal.type === 'deposit' ? 'EMI / কিস্তি' : 'Savings Goal'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Day of Month Selector */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase flex items-center gap-1.5">
+                  <CalendarClock className="w-3.5 h-3.5 text-[#e0385e]" />
+                  {lang === 'bn' ? 'প্রতি মাসের কিস্তির তারিখ' : 'Day of Month for EMI'} *
+                </label>
+                <select
+                  value={emiDueDay}
+                  onChange={(e) => setEmiDueDay(Number(e.target.value))}
+                  className="w-full px-4 py-3 bg-white dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-700 focus:border-emerald-500 dark:focus:border-emerald-500 rounded-xl text-zinc-900 dark:text-zinc-100 text-base font-bold focus:outline-none transition-all cursor-pointer"
+                  style={{ colorScheme: 'dark' }}
+                >
+                  {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                    <option 
+                      key={day} 
+                      value={day}
+                      className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 font-bold"
+                    >
+                      {lang === 'bn' ? `প্রতি মাসের ${formatNumber(day, 'bn')} তারিখ` : `Day ${day} of every month`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Daily Alert Time */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase flex items-center gap-1.5">
+                  <Bell className="w-3.5 h-3.5 text-amber-500" />
+                  {lang === 'bn' ? 'নোটিফিকেশন অ্যালার্টের সময়' : 'Notification Alert Time'}
+                </label>
+                <input
+                  type="time"
+                  value={emiAlertTime}
+                  onChange={(e) => setEmiAlertTime(e.target.value)}
+                  className="w-full px-4 py-3 bg-white dark:bg-zinc-900 border-2 border-zinc-200 dark:border-zinc-700 focus:border-emerald-500 dark:focus:border-emerald-500 rounded-xl text-zinc-900 dark:text-zinc-100 text-base font-bold focus:outline-none transition-all"
+                  style={{ colorScheme: 'dark' }}
+                />
+              </div>
+
+              {/* Existing active reminder status */}
+              {reminders.some(r => r.goalId === emiReminderGoal.id && r.active) && (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/25 border border-emerald-200 dark:border-emerald-900/50 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span>
+                    {lang === 'bn'
+                      ? 'এই কিস্তির রিমাইন্ডার বর্তমানে সক্রিয় রয়েছে।'
+                      : 'An EMI reminder is currently active for this goal.'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="p-5 border-t border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 space-y-2.5">
+              <button
+                type="button"
+                disabled={isSavingEmiReminder}
+                onClick={handleSaveEmiReminder}
+                className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl text-base shadow-md cursor-pointer transition-colors flex items-center justify-center gap-2"
+              >
+                <Bell className="w-5 h-5" />
+                {reminders.some(r => r.goalId === emiReminderGoal.id && r.active)
+                  ? (lang === 'bn' ? 'রিমাইন্ডার আপডেট করুন' : 'Update EMI Reminder')
+                  : (lang === 'bn' ? 'কিস্তির অ্যালার্ট চালু করুন' : 'Enable EMI Reminder')}
+              </button>
+
+              {reminders.some(r => r.goalId === emiReminderGoal.id) && (
+                <button
+                  type="button"
+                  onClick={handleRemoveEmiReminder}
+                  className="w-full py-3.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-[#e0385e] dark:text-rose-400 font-bold rounded-xl text-sm cursor-pointer transition-colors"
+                >
+                  {lang === 'bn' ? 'রিমাইন্ডার বন্ধ করুন' : 'Turn Off Reminder'}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setEmiReminderGoal(null)}
+                className="w-full py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-sm cursor-pointer transition-colors"
               >
                 {lang === 'bn' ? 'বাতিল' : 'Cancel'}
               </button>

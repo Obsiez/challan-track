@@ -1119,22 +1119,37 @@ const lastSubmitRef = useRef<{
  }
  };
 
- // Add a reminder for customer
- const addReminder = async (customerId: string, notes: string, dueDate: Date) => {
+ // Add a reminder for customer or EMI installment
+ const addReminder = async (
+   customerId: string, 
+   notes: string, 
+   dueDate: Date,
+   extra?: {
+     type?: 'customer' | 'emi';
+     goalId?: string;
+     customerName?: string;
+     emiDayOfMonth?: number;
+     installmentAmount?: number;
+   }
+ ) => {
  if (!userId) return;
  const customer = customers.find(c => c.id === customerId);
- if (!customer) return;
+ const resolvedName = extra?.customerName || customer?.name || 'EMI Account';
 
  const customRemId = doc(collection(db, 'temp')).id;
  const newReminder: Reminder = {
  id: customRemId,
  userId,
- customerId,
- customerName: customer.name,
+ customerId: customerId || extra?.goalId || '',
+ customerName: resolvedName,
  notes: notes.trim(),
  dueDate,
  active: true,
- createdAt: new Date()
+ createdAt: new Date(),
+ type: extra?.type || 'customer',
+ goalId: extra?.goalId,
+ emiDayOfMonth: extra?.emiDayOfMonth,
+ installmentAmount: extra?.installmentAmount
  };
 
  const updatedReminders = [newReminder, ...reminders];

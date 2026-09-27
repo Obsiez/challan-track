@@ -41,6 +41,10 @@ export interface Reminder {
  dueDate: any; // Target pay date
  active: boolean;
  createdAt: any;
+ type?: 'customer' | 'emi';
+ goalId?: string;
+ emiDayOfMonth?: number;
+ installmentAmount?: number;
 }
 
 export interface FirestoreErrorInfo {

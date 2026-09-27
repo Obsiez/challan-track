@@ -284,6 +284,96 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user, dailyTransactions, lang]);
 
+  // Automated Reminders & Monthly EMI 7-Day Advance Notification Scheduler
+  useEffect(() => {
+    if (!user || !reminders || reminders.length === 0) return;
+
+    if ('Notification' in window && window.Notification && window.Notification.permission === 'default') {
+      window.Notification.requestPermission();
+    }
+
+    const checkRemindersAndAlert = () => {
+      const now = new Date();
+      const todayDateStr = getLocalDateString(now);
+      const nowTime = now.getTime();
+
+      reminders.forEach((rem) => {
+        if (!rem.active) return;
+
+        // 1. Monthly EMI Reminder (7 days prior daily alert)
+        if (rem.type === 'emi') {
+          const dueDay = rem.emiDayOfMonth || new Date(rem.dueDate).getDate() || 1;
+          const currentYear = now.getFullYear();
+          const currentMonth = now.getMonth();
+          
+          let targetDate = new Date(currentYear, currentMonth, dueDay);
+          if (now.getDate() > dueDay) {
+            targetDate = new Date(currentYear, currentMonth + 1, dueDay);
+          }
+          
+          const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+          const startOfTarget = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime();
+          const diffDays = Math.round((startOfTarget - startOfToday) / (1000 * 60 * 60 * 24));
+
+          // Send daily reminder if within 7 days (7, 6, 5, 4, 3, 2, 1, 0 days remaining)
+          if (diffDays >= 0 && diffDays <= 7) {
+            const notifiedKey = `notified_emi_${rem.id}_${todayDateStr}`;
+            if (!localStorage.getItem(notifiedKey)) {
+              const amountStr = rem.installmentAmount ? ` (৳${formatNumber(rem.installmentAmount, lang)})` : '';
+              let bodyText = '';
+              if (diffDays === 0) {
+                bodyText = lang === 'bn' 
+                  ? `আজ ${rem.customerName}-এর মাসিক কিস্তি${amountStr} পরিশোধের শেষ দিন!` 
+                  : `Today is the due date for ${rem.customerName} monthly installment${amountStr}!`;
+              } else if (diffDays === 1) {
+                bodyText = lang === 'bn'
+                  ? `আগামীকাল ${rem.customerName}-এর কিস্তি${amountStr} দেওয়ার সময় এসেছে।`
+                  : `Tomorrow is the due date for ${rem.customerName} installment${amountStr}.`;
+              } else {
+                bodyText = lang === 'bn'
+                  ? `আর মাত্র ${formatNumber(diffDays, 'bn')} দিন বাকি: ${rem.customerName}-এর মাসিক কিস্তি${amountStr} পরিশোধ করার প্রস্তুতি রাখুন।`
+                  : `${diffDays} days remaining: Remember to prepare ${rem.customerName} monthly installment${amountStr}.`;
+              }
+
+              showNotification(lang === 'bn' ? 'চালান ট্র্যাক - কিস্তি রিমাইন্ডার' : 'Challan Track - EMI Reminder', {
+                body: bodyText,
+                icon: '/icon-192.png',
+                badge: '/icon-192.png',
+                tag: `emi-${rem.id}-${todayDateStr}`
+              });
+
+              triggerHaptic([300, 150, 300]);
+              localStorage.setItem(notifiedKey, 'true');
+            }
+          }
+        } else {
+          // 2. Standard Customer Follow-up Reminder
+          const remDueDate = new Date(rem.dueDate).getTime();
+          if (remDueDate <= nowTime) {
+            const notifiedKey = `notified_rem_${rem.id}_${todayDateStr}`;
+            if (!localStorage.getItem(notifiedKey)) {
+              showNotification(lang === 'bn' ? 'চালান ট্র্যাক - বকেয়া তাগাদা' : 'Challan Track - Reminder', {
+                body: lang === 'bn'
+                  ? `${rem.customerName}: ${rem.notes || 'বকেয়া আদায়ের ফলো-আপ করার সময় হয়েছে।'}`
+                  : `${rem.customerName}: ${rem.notes || 'Time to follow up on pending dues.'}`,
+                icon: '/icon-192.png',
+                badge: '/icon-192.png',
+                tag: `rem-${rem.id}`
+              });
+
+              triggerHaptic([200, 100, 200]);
+              localStorage.setItem(notifiedKey, 'true');
+            }
+          }
+        }
+      });
+    };
+
+    checkRemindersAndAlert();
+    const interval = setInterval(checkRemindersAndAlert, 60000);
+    return () => clearInterval(interval);
+  }, [user, reminders, lang]);
+
 
 
  // Virtual Custom Dialogue Popups to bypass sandboxed iframe alert()/confirm() blocks
@@ -679,6 +769,7 @@ export default function App() {
  <RemindersManager 
  reminders={reminders}
  customers={customers}
+ goals={goals}
  addReminder={addReminder}
  toggleReminder={toggleReminder}
  deleteReminder={deleteReminder}
@@ -697,6 +788,9 @@ updateSettings={updateSettings}
   addGoalContribution={addGoalContribution}
   deleteGoal={deleteGoal}
   updateGoalStatus={updateGoalStatus}
+  reminders={reminders}
+  addReminder={addReminder}
+  deleteReminder={deleteReminder}
   lang={lang}
   />
   )}

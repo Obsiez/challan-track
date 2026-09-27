@@ -1,22 +1,27 @@
 /**
  * Helper to display system notifications safely across different devices and browsers.
- * This prevents "TypeError: Failed to construct 'Notification': Illegal constructor"
- * on Android Chrome and WebViews by wrapping in a try-catch and attempting to use
- * service worker registration if available.
+ * Uses custom high-resolution PNG icon and badge to ensure Challan Track branding
+ * appears on Android status bars and notification panels instead of the default Chrome logo.
  */
 export function showNotification(title: string, options?: NotificationOptions) {
+  const mergedOptions: NotificationOptions = {
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    ...options
+  };
+
   try {
     if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
       navigator.serviceWorker.ready
         .then((registration) => {
-          registration.showNotification(title, options);
+          registration.showNotification(title, mergedOptions);
         })
         .catch((err) => {
           console.warn("ServiceWorker showNotification failed, using fallback:", err);
-          fallbackNotification(title, options);
+          fallbackNotification(title, mergedOptions);
         });
     } else {
-      fallbackNotification(title, options);
+      fallbackNotification(title, mergedOptions);
     }
   } catch (err) {
     console.warn("Notification constructor failed, caught to prevent crash:", err);

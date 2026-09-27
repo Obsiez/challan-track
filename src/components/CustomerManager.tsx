@@ -484,26 +484,41 @@ const [editingTx, setEditingTx] = useState<Transaction | null>(null);
     }
   }, [highlightedTxId, selectedCustomerId]);
 
+  const parseTxDate = (d: any): Date => {
+    if (!d) return new Date();
+    if (d instanceof Date) return d;
+    if (typeof d.toDate === 'function') return d.toDate();
+    if (d.seconds !== undefined) return new Date(d.seconds * 1000);
+    const parsed = new Date(d);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+  };
+
   const getDuplicate = (actionType: 'due' | 'payment', amountStr: string) => {
     if (!selectedCustomerId || !amountStr) return null;
     const cleaned = amountStr.replace(/,/g, '');
     const amountVal = parseFloat(cleaned);
     if (isNaN(amountVal) || amountVal <= 0) return null;
 
-    const customerTxs = transactions
-      .filter(t => t.customerId === selectedCustomerId)
-      .sort((a, b) => {
-        const dateA = a.createdAt ? new Date(a.createdAt) : new Date(a.date);
-        const dateB = b.createdAt ? new Date(b.createdAt) : new Date(b.date);
-        return dateB.getTime() - dateA.getTime();
-      });
-    const last5 = customerTxs.slice(0, 5);
+    let customerTxs = transactions.filter(t => t.customerId === selectedCustomerId);
+    if (customerTxs.length === 0 && typeof localStorage !== 'undefined') {
+      try {
+        const userId = customers.find(c => c.id === selectedCustomerId)?.userId;
+        if (userId) {
+          const cached = localStorage.getItem(`easy_due_txs_${userId}_${selectedCustomerId}`);
+          if (cached) {
+            customerTxs = JSON.parse(cached);
+          }
+        }
+      } catch (e) {}
+    }
+
     const now = Date.now();
-    return last5.find(t => {
-      const tDate = t.createdAt ? new Date(t.createdAt) : new Date(t.date);
+    const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+    return customerTxs.find(t => {
+      const tDate = parseTxDate(t.createdAt || t.date);
       return t.type === actionType && 
              Math.abs(t.amount - amountVal) < 0.01 && 
-             (now - tDate.getTime()) < 24 * 60 * 60 * 1000;
+             (now - tDate.getTime()) < twentyFourHoursMs;
     }) || null;
   };
 

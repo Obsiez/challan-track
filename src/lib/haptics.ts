@@ -1,3 +1,35 @@
+let iosHapticCheckbox: HTMLInputElement | null = null;
+let iosHapticLabel: HTMLLabelElement | null = null;
+
+function triggerIosHaptic() {
+  if (typeof document === 'undefined') return;
+  try {
+    if (!iosHapticLabel) {
+      iosHapticCheckbox = document.createElement('input');
+      iosHapticCheckbox.type = 'checkbox';
+      iosHapticCheckbox.setAttribute('switch', '');
+      iosHapticCheckbox.id = 'ios-haptic-trigger-switch';
+      iosHapticCheckbox.style.position = 'fixed';
+      iosHapticCheckbox.style.top = '-9999px';
+      iosHapticCheckbox.style.left = '-9999px';
+      iosHapticCheckbox.style.opacity = '0';
+      iosHapticCheckbox.style.pointerEvents = 'none';
+
+      iosHapticLabel = document.createElement('label');
+      iosHapticLabel.htmlFor = 'ios-haptic-trigger-switch';
+      iosHapticLabel.style.position = 'fixed';
+      iosHapticLabel.style.top = '-9999px';
+      iosHapticLabel.style.left = '-9999px';
+      iosHapticLabel.style.opacity = '0';
+      iosHapticLabel.style.pointerEvents = 'none';
+
+      document.body.appendChild(iosHapticCheckbox);
+      document.body.appendChild(iosHapticLabel);
+    }
+    iosHapticLabel.click();
+  } catch (e) {}
+}
+
 export const triggerHaptic = (type: 'single' | 'double' | 'tick' | number | number[] = 'single') => {
   if (localStorage.getItem('haptics') !== 'true') return;
   const intensity = parseInt(localStorage.getItem('haptic_intensity') || '3');
@@ -37,9 +69,23 @@ export const triggerHaptic = (type: 'single' | 'double' | 'tick' | number | numb
     pattern = baseDuration;
   }
 
+  // 1. Standard Web Vibration API (Android Chrome, desktop, etc.)
   try {
-    window.navigator?.vibrate?.(pattern);
+    if (window.navigator?.vibrate) {
+      window.navigator.vibrate(pattern);
+    }
   } catch (e) {
     console.warn("Haptics vibration failed:", e);
   }
+
+  // 2. iOS Safari / WebKit Taptic Engine workaround
+  try {
+    const isIOS = typeof navigator !== 'undefined' && (
+      /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    );
+    if (isIOS) {
+      triggerIosHaptic();
+    }
+  } catch (e) {}
 };
