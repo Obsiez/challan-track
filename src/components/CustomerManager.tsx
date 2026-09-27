@@ -11,7 +11,7 @@ import {
   downloadReceiptImage, 
   copyReceiptImage, 
   shareReceiptImage, 
-  ReceiptImageResult 
+  ReceiptImageResult
 } from '../lib/receiptGenerator';
 import { toast } from 'sonner';
 import { motion, AnimatePresence, useAnimation } from 'motion/react';
@@ -656,8 +656,13 @@ if (sortBy === 'custom') {
     if (!selectedCustomer) return;
     setIsGeneratingReceipt(true);
     triggerHaptic('single');
+
     try {
-      const result = await generateReceiptPng(selectedCustomer, selectedCustomerTransactions, lang);
+      const result = await generateReceiptPng(
+        selectedCustomer,
+        selectedCustomerTransactions,
+        lang
+      );
       setReceiptResult(result);
       try {
         window.history.pushState({ modal: 'receiptPreview' }, '');
@@ -1182,7 +1187,7 @@ if (sortBy === 'custom') {
       </button>
       <button
         type="button"
-        onClick={handleGenerateReceiptImage}
+        onClick={() => handleGenerateReceiptImage()}
         disabled={isGeneratingReceipt}
         className="p-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-755 text-zinc-655 border border-zinc-200 dark:border-zinc-700 rounded-full transition-all cursor-pointer flex items-center justify-center shadow-md animate-in fade-in"
         title={lang === 'bn' ? 'রসিদ ইমেজ তৈরি ও ডাউনলোড করুন' : 'Generate & Download Receipt Image'}

@@ -1939,24 +1939,8 @@ const lastSubmitRef = useRef<{
     }
   };
 
-  // 6. Background Migration: Initialize transaction count and monthly summaries if missing
-  useEffect(() => {
-    if (!userId || userId === 'local-guest-session' || isOfflineFallback || !settings) return;
-    if (settings.transactionsCount === undefined) {
-      console.log("Initializing transaction count and monthly summaries...");
-      rebuildMonthlySummaries(userId).catch(e => console.warn(e));
-    }
-  }, [userId, settings, isOfflineFallback]);
-
-  // Auto-heal Monthly Summaries: rebuild if user has transactions but summaries is empty
-  useEffect(() => {
-    if (!userId || userId === 'local-guest-session' || isOfflineFallback || !settings) return;
-    const txCount = settings.transactionsCount || 0;
-    if (txCount > 0 && monthlySummaries.length === 0) {
-      console.log("Monthly summaries empty but user has transactions. Auto-healing summaries...");
-      rebuildMonthlySummaries(userId).catch(e => console.warn(e));
-    }
-  }, [userId, settings?.transactionsCount, monthlySummaries.length, isOfflineFallback]);
+  // Note: Automated full-database scans on startup were decommissioned to protect Firebase read limits.
+  // Rebuilding summaries is available on-demand via SettingsManager ("Rebuild & Repair") and during data imports.
 
   // 5. Automatic cleanup of trashed items older than 14 days
   useEffect(() => {
