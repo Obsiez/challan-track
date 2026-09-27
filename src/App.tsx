@@ -141,7 +141,7 @@ export default function App() {
   }, []);
  // Multilingual State ('bn' is Bangla, 'en' is English)
  const [lang, setLang] = useState<Language>(() => {
- return (localStorage.getItem('lang') as Language) || 'bn';
+ return (localStorage.getItem('lang') as Language) || 'en';
  });
 
  const handleLangChange = (newLang: Language) => {
@@ -155,7 +155,7 @@ export default function App() {
 
  // State for Theme
  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
- return (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
+ return (localStorage.getItem('theme') as 'light' | 'dark') || 'dark';
  });
 
  // Apply theme class to document element dynamically
@@ -284,14 +284,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user, dailyTransactions, lang]);
 
-  // Sync theme with Firestore settings on initial load or cross-device change
-  const [initialSettingsSynced, setInitialSettingsSynced] = useState(false);
-  useEffect(() => {
-    // Theme is local only now, so we do not sync theme from settings
-    if (settings && !initialSettingsSynced) {
-      setInitialSettingsSynced(true);
-    }
-  }, [settings, initialSettingsSynced]);
+
 
  // Virtual Custom Dialogue Popups to bypass sandboxed iframe alert()/confirm() blocks
  const [appDialog, setAppDialog] = useState<{
@@ -334,25 +327,15 @@ export default function App() {
  }
  });
  };
-
- const handleThemeChange = async (newTheme: 'light' | 'dark') => {
- setTheme(newTheme);
- // Persist immediately on client
- localStorage.setItem('theme', newTheme);
-  if (user) {
-    try {
-      await updateTheme(newTheme);
-    } catch (err) {
-      console.error('Failed to sync theme to cloud:', err);
-    }
-  }
-};
+  const handleThemeChange = (newTheme: 'light' | 'dark') => {
+    setTheme(newTheme);
+    localStorage.setItem('theme', newTheme);
+  };
 
  // Handle Log In Mechanisms
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true);
     setAuthError(null);
-    sessionStorage.setItem('login_intent_theme', theme);
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
@@ -400,7 +383,6 @@ export default function App() {
   };
 
  const handleGuestSignIn = () => {
- sessionStorage.setItem('login_intent_theme', theme);
  localStorage.setItem('local_guest_session', 'true');
  setUser({
  uid: 'local-guest-session',
@@ -419,7 +401,6 @@ export default function App() {
  setUser(null);
  await signOut(auth);
  navigateTo('home', null, true);
- setInitialSettingsSynced(false);
  } catch (err) {
  console.error(err);
  }

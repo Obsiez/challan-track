@@ -52,7 +52,6 @@ export default function SettingsManager({
 }: SettingsManagerProps) {
  const t = translations[lang];
   const [exporting, setExporting] = useState(false);
-  const [rebuilding, setRebuilding] = useState(false);
 
   const [hapticsOn, setHapticsOn] = useState(() => localStorage.getItem('haptics') === 'true');
   const [confirmAction, setConfirmAction] = useState<any>(null);
@@ -181,21 +180,7 @@ export default function SettingsManager({
     }
   };
 
-  const handleRebuild = async () => {
-    if (!rebuildMonthlySummaries) return;
-    setRebuilding(true);
-    try {
-      await rebuildMonthlySummaries();
-      toast.success(lang === 'bn' ? 'ডাটাবেস সফলভাবে পুনর্গঠন করা হয়েছে' : 'Database successfully rebuilt');
-    } catch (e) {
-      console.warn(e);
-      toast.error(lang === 'bn' ? 'পুনর্গঠন ব্যর্থ হয়েছে' : 'Rebuild failed');
-    } finally {
-      setRebuilding(false);
-    }
-  };
-
-  const activeTheme = settings?.theme || 'light';
+  const activeTheme = theme;
 
  return (
  <div className="space-y-6 no-select">
@@ -443,28 +428,6 @@ export default function SettingsManager({
    </div>
   </div>
 
-  {/* Rebuild Database action */}
-  {rebuildMonthlySummaries && settings?.uid && settings.uid !== 'local-guest-session' && (
-    <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-      <div>
-        <div className="text-sm font-bold text-zinc-800 dark:text-white">
-          {lang === 'bn' ? 'ডাটাবেস পুনর্গঠন ও সংশোধন' : 'Rebuild Database & Fix Inconsistencies'}
-        </div>
-        <p className="text-xs text-zinc-500">
-          {lang === 'bn' ? 'লেনদেনের হিসাব পুনর্গঠন করে ৬ মাসের অ্যানালিটিক্স সম্পূর্ণ ঠিক করুন।' : 'Recalculate all monthly dues/payments counters and restore 100% database accuracy.'}
-        </p>
-      </div>
-      <button
-        type="button"
-        disabled={rebuilding}
-        onClick={handleRebuild}
-        className="px-5 py-3.5 bg-amber-600 hover:bg-amber-700 font-extrabold text-white rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md transition-colors disabled:opacity-75 disabled:cursor-not-allowed"
-      >
-        <RotateCcw className={`w-4.5 h-4.5 text-white ${rebuilding ? 'animate-spin' : ''}`} />
-        {rebuilding ? (lang === 'bn' ? 'পুনর্গঠন হচ্ছে...' : 'Rebuilding...') : (lang === 'bn' ? 'পুনর্গঠন ও মেরামত' : 'Rebuild & Repair')}
-      </button>
-    </div>
-  )}
   </div>
 
   {/* 5. OWNER PROFILE ACCOUNT DETAIL */}

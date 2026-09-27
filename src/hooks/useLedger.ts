@@ -28,6 +28,7 @@ export function useLedger(
   const [trashCustomers, setTrashCustomers] = useState<Customer[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [customerTransactions, setCustomerTransactions] = useState<Transaction[]>([]);
+  const [allCustomerTxs, setAllCustomerTxs] = useState<Transaction[]>([]);
   const [archiveTransactions, setArchiveTransactions] = useState<Transaction[]>([]);
     const [monthlySummaries, setMonthlySummaries] = useState<any[]>([]);
 
@@ -224,20 +225,15 @@ const lastSubmitRef = useRef<{
 
  if (storedSettings) {
         const parsed = JSON.parse(storedSettings);
-        const loginTheme = sessionStorage.getItem('login_intent_theme');
-        if (loginTheme && loginTheme !== parsed.theme) {
-          parsed.theme = loginTheme as 'light' | 'dark';
-          saveLocalSettings(parsed);
+        if (!parsed.theme || (parsed.theme !== 'light' && parsed.theme !== 'dark')) {
+          parsed.theme = 'dark';
         }
-        sessionStorage.removeItem('login_intent_theme');
         setSettings(parsed);
  } else {
-        const loginTheme = sessionStorage.getItem('login_intent_theme') || 'light';
-        sessionStorage.removeItem('login_intent_theme');
         setSettings({
           uid: userId,
           email: auth.currentUser?.email || 'guest@challantrack.local',
-          theme: loginTheme as 'light' | 'dark',
+          theme: 'dark',
           dailyReminderTime: '09:00',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
@@ -314,25 +310,17 @@ const lastSubmitRef = useRef<{
  const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
  if (docSnap.exists()) {
         const data = docSnap.data() as UserSettings;
-        
-        const loginTheme = sessionStorage.getItem('login_intent_theme');
-        if (loginTheme && loginTheme !== data.theme) {
-          data.theme = loginTheme as 'light' | 'dark';
-          updateDoc(userDocRef, { theme: loginTheme, updatedAt: serverTimestamp() }).catch(e => console.warn(e));
+        if (!data.theme || (data.theme !== 'light' && data.theme !== 'dark')) {
+          data.theme = 'dark';
         }
-        sessionStorage.removeItem('login_intent_theme');
-
         setSettings(data);
         saveLocalSettings(data);
  } else {
-        const loginTheme = sessionStorage.getItem('login_intent_theme') || 'light';
-        sessionStorage.removeItem('login_intent_theme');
-        
-        // Initialize default user settings if not exists
+        // Initialize default user settings if not exists (Dark mode default for new accounts)
         const defaultSettings: UserSettings = {
           uid: userId,
           email: auth.currentUser?.email || '',
-          theme: loginTheme as 'light' | 'dark',
+          theme: 'dark',
           dailyReminderTime: '09:00',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -393,22 +381,37 @@ const lastSubmitRef = useRef<{
  return () => unsubscribe();
  }, [userId]);
 
-// 3. Sync Paginated Customer Transactions (only when a customer profile is open)
+// 3. Sync Customer Transactions on-demand (Option A: Client-Side Sorting - No composite index required!)
   useEffect(() => {
     if (!userId || userId === 'local-guest-session' || isOfflineFallback) {
       return;
     }
     if (!activeCustomerId) {
+      setAllCustomerTxs([]);
       setCustomerTransactions([]);
       return;
     }
 
+    // Try loading immediately from local cache if available for instant display
+    try {
+      const cached = localStorage.getItem(`easy_due_txs_${userId}_${activeCustomerId}`);
+      if (cached) {
+        const parsed: Transaction[] = JSON.parse(cached).map((t: any) => ({
+          ...t,
+          date: parseTxDate(t.date),
+          createdAt: parseTxDate(t.createdAt)
+        }));
+        setAllCustomerTxs(parsed);
+      }
+    } catch (e) {
+      console.warn("Failed to load cached customer txs:", e);
+    }
+
     const txRef = collection(db, 'users', userId, 'transactions');
+    // Equality query only on 'customerId' - supported by default single-field index without requiring composite index!
     const q = query(
       txRef,
-      where('customerId', '==', activeCustomerId),
-      orderBy('date', 'desc'),
-      limit(customerTxLimit)
+      where('customerId', '==', activeCustomerId)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -418,37 +421,55 @@ const lastSubmitRef = useRef<{
         list.push({
           ...data,
           id: docSnap.id,
-          date: data.date?.toDate ? data.date.toDate() : new Date(data.date),
+          date: parseTxDate(data.date),
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt).toISOString() : new Date()),
         } as Transaction);
       });
-      setCustomerTransactions(list);
+
+      // Client-side sort descending by date (newest first)
+      list.sort((a, b) => {
+        const dateA = parseTxDate(a.date).getTime();
+        const dateB = parseTxDate(b.date).getTime();
+        return dateB - dateA;
+      });
+
+      setAllCustomerTxs(list);
+      setActiveCustomerTxCount(list.length);
+
+      // Save to local cache for instant future loads
+      try {
+        localStorage.setItem(`easy_due_txs_${userId}_${activeCustomerId}`, JSON.stringify(list));
+      } catch (e) {
+        console.warn("Failed to cache customer txs:", e);
+      }
     }, (error) => {
       console.warn("Firestore error syncing customer transactions:", error);
     });
 
     return () => unsubscribe();
-  }, [userId, activeCustomerId, customerTxLimit, isOfflineFallback]);
+  }, [userId, activeCustomerId, isOfflineFallback]);
 
-  // 3a. Compute Customer Transactions locally in guest session or offline fallback
+  // 3a. Slice Customer Transactions according to pagination limit (for both cloud & guest sessions)
   useEffect(() => {
-    if (!userId) return;
+    if (!activeCustomerId) {
+      setCustomerTransactions([]);
+      return;
+    }
+
     if (userId === 'local-guest-session' || isOfflineFallback) {
-      if (!activeCustomerId) {
-        setCustomerTransactions([]);
-        return;
-      }
       const filtered = transactions
         .filter(t => t.customerId === activeCustomerId)
         .sort((a, b) => {
-          const dateA = a.date instanceof Date ? a.date : new Date(a.date);
-          const dateB = b.date instanceof Date ? b.date : new Date(b.date);
-          return dateB.getTime() - dateA.getTime();
+          const dateA = parseTxDate(a.date).getTime();
+          const dateB = parseTxDate(b.date).getTime();
+          return dateB - dateA;
         })
         .slice(0, customerTxLimit);
       setCustomerTransactions(filtered);
+    } else {
+      setCustomerTransactions(allCustomerTxs.slice(0, customerTxLimit));
     }
-  }, [userId, transactions, activeCustomerId, customerTxLimit, isOfflineFallback]);
+  }, [userId, isOfflineFallback, activeCustomerId, transactions, allCustomerTxs, customerTxLimit]);
 
 // 3b. Sync Daily Archive Transactions (queries Firestore for selected date range)
   useEffect(() => {
@@ -772,7 +793,7 @@ const lastSubmitRef = useRef<{
  const updatedSettings = settings ? { ...settings, dailyReminderTime: time, updatedAt: new Date() } : {
  uid: userId,
  email: auth.currentUser?.email || 'guest@challantrack.local',
- theme: 'light' as const,
+ theme: 'dark' as const,
  dailyReminderTime: time,
  createdAt: new Date(),
  updatedAt: new Date()
@@ -1045,6 +1066,11 @@ const lastSubmitRef = useRef<{
  setCustomers(updatedCustomers);
  saveLocalTransactions(updatedTxs);
  saveLocalCustomers(updatedCustomers);
+
+ if (customerId === activeCustomerId) {
+   setAllCustomerTxs(prev => [newTx, ...prev.filter(t => t.id !== newTx.id)]);
+   setActiveCustomerTxCount(prev => prev + 1);
+ }
 
  adjustLocalMonthlySummaries(null, newTx);
 
@@ -1356,6 +1382,7 @@ const lastSubmitRef = useRef<{
     if (!userId) return;
 
     let tx = customerTransactions.find(t => t.id === transactionId) ||
+             allCustomerTxs.find(t => t.id === transactionId) ||
              archiveTransactions.find(t => t.id === transactionId) ||
              transactions.find(t => t.id === transactionId);
 
@@ -1415,6 +1442,7 @@ const lastSubmitRef = useRef<{
 
     // Update local states optimistically
     setCustomerTransactions(prev => prev.map(t => t.id === transactionId ? updatedTx : t));
+    setAllCustomerTxs(prev => prev.map(t => t.id === transactionId ? updatedTx : t));
     setArchiveTransactions(prev => prev.map(t => t.id === transactionId ? updatedTx : t));
     setTransactions(prev => prev.map(t => t.id === transactionId ? updatedTx : t));
 
@@ -1447,6 +1475,7 @@ const lastSubmitRef = useRef<{
     if (!userId) return;
 
     let tx = customerTransactions.find(t => t.id === transactionId) ||
+             allCustomerTxs.find(t => t.id === transactionId) ||
              archiveTransactions.find(t => t.id === transactionId) ||
              transactions.find(t => t.id === transactionId);
 
@@ -1487,6 +1516,7 @@ const lastSubmitRef = useRef<{
 
     // Update memory states optimistically
     setCustomerTransactions(prev => prev.filter(t => t.id !== transactionId));
+    setAllCustomerTxs(prev => prev.filter(t => t.id !== transactionId));
     setArchiveTransactions(prev => prev.filter(t => t.id !== transactionId));
     setTransactions(prev => prev.filter(t => t.id !== transactionId));
 
@@ -1932,6 +1962,7 @@ const lastSubmitRef = useRef<{
 
     setTransactions(newTransactions);
     setCustomerTransactions([]);
+    setAllCustomerTxs([]);
     setArchiveTransactions([]);
 
     if (!isLocal) {
