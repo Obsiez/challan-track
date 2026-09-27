@@ -6,6 +6,8 @@ import { translations, formatNumber, formatIndianNumberString, Language } from '
 import { triggerHaptic } from '../lib/haptics';
 import { toast } from 'sonner';
 import { getPhoneticKey, matchesPhonetic } from '../lib/phonetics';
+import ContactNumberPickerModal from './ContactNumberPickerModal';
+import { cleanBangladeshiPhone } from '../lib/phoneUtils';
 
 interface QuickEntryModalProps {
   isOpen: boolean;
@@ -54,6 +56,11 @@ export default function QuickEntryModal({
  const [selectedCustomerId, setSelectedCustomerId] = useState(preselectedCustomerId || '');
  const [customerNameInput, setCustomerNameInput] = useState('');
  const [customerPhoneInput, setCustomerPhoneInput] = useState('');
+ const [pendingContactChoice, setPendingContactChoice] = useState<{
+   contactName: string;
+   numbers: string[];
+   onSelect: (number: string) => void;
+ } | null>(null);
  const [showAddNewCustomer, setShowAddNewCustomer] = useState(false);
  const [showAllCustomers, setShowAllCustomers] = useState(false);
  
@@ -105,19 +112,50 @@ export default function QuickEntryModal({
        const options = { multiple: false };
        const contacts = await (navigator as any).contacts.select(props, options);
        if (contacts && contacts.length > 0) {
-         if (contacts[0].tel && contacts[0].tel.length > 0) {
-           const rawPhone = contacts[0].tel[0];
-           const cleaned = rawPhone.replace(/[^\d+]/g, '');
-           setCustomerPhoneInput(cleaned);
+         const contact = contacts[0];
+         const rawName = (contact.name && contact.name[0]) ? contact.name[0] : '';
+         const rawTels: string[] = contact.tel || [];
+
+         // Clean all numbers (stripping +88 / +880) and deduplicate
+         const cleanedNumbers = Array.from(new Set(
+           rawTels
+             .map(t => cleanBangladeshiPhone(t))
+             .filter(t => t.length > 0)
+         ));
+
+         if (cleanedNumbers.length === 0) {
+           toast.error(lang === 'bn' ? 'কোনো ফোন নম্বর পাওয়া যায়নি।' : 'No phone number found in this contact.');
+           return;
          }
-         if (contacts[0].name && contacts[0].name.length > 0 && !customerNameInput.trim()) {
-           const rawName = contacts[0].name[0];
-           if (rawName) setCustomerNameInput(rawName);
+
+         // If contact has multiple numbers, open modern choice modal!
+         if (cleanedNumbers.length > 1) {
+           triggerHaptic('single');
+           setPendingContactChoice({
+             contactName: rawName,
+             numbers: cleanedNumbers,
+             onSelect: (chosen: string) => {
+               setCustomerPhoneInput(chosen);
+               if (rawName && !customerNameInput.trim()) setCustomerNameInput(rawName);
+               toast.success(lang === 'bn' ? 'নম্বর সফলভাবে নেওয়া হয়েছে' : 'Contact number selected');
+             }
+           });
+           return;
+         }
+
+         // Exactly one number: set directly
+         const singleNumber = cleanedNumbers[0];
+         setCustomerPhoneInput(singleNumber);
+         if (rawName && !customerNameInput.trim()) {
+           setCustomerNameInput(rawName);
          }
          triggerHaptic('single');
+         toast.success(lang === 'bn' ? 'নম্বর সফলভাবে নেওয়া হয়েছে' : 'Contact number selected');
        }
-     } catch (err) {
-       console.warn("Contact picker failed or was cancelled:", err);
+     } catch (err: any) {
+       if (err?.name !== 'AbortError') {
+         console.warn("Contact picker failed or was cancelled:", err);
+       }
      }
    } else {
      triggerHaptic('double');
@@ -483,7 +521,7 @@ export default function QuickEntryModal({
    type="tel"
    placeholder="e.g. 01712345678"
    value={customerPhoneInput}
-   onChange={(e) => setCustomerPhoneInput(e.target.value)}
+   onChange={(e) => setCustomerPhoneInput(cleanBangladeshiPhone(e.target.value))}
    className={`flex-1 px-4 py-3 border-2 rounded-xl text-zinc-850 dark:text-white focus:outline-none transition-all ${
      type === 'due'
        ? 'bg-[#e0385e]/5 dark:bg-[#e0385e]/5 border-[#e0385e]/30 focus:border-[#e0385e] dark:border-[#e0385e]/20 dark:focus:border-[#e0385e]'
@@ -493,10 +531,11 @@ export default function QuickEntryModal({
    <button
      type="button"
      onClick={handlePickContact}
-     className="px-3.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-650 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-sm shrink-0"
+     className="px-3.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/80 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-sm shrink-0 font-bold text-xs"
      title={lang === 'bn' ? 'কন্টাক্ট নির্বাচন করুন' : 'Pick Contact'}
    >
-     <BookUser className="w-5 h-5" />
+     <BookUser className="w-4.5 h-4.5 text-emerald-600 dark:text-emerald-400" />
+     <span className="hidden sm:inline">{lang === 'bn' ? 'কন্টাক্ট' : 'Contacts'}</span>
    </button>
  </div>
  </div>
@@ -722,6 +761,21 @@ export default function QuickEntryModal({
         </div>
       </motion.div>
     </div>
+  )}
+
+  {/* Modern Contact Phone Selector Modal */}
+  {pendingContactChoice && (
+    <ContactNumberPickerModal
+      isOpen={true}
+      contactName={pendingContactChoice.contactName}
+      numbers={pendingContactChoice.numbers}
+      onSelectNumber={(chosen) => {
+        pendingContactChoice.onSelect(chosen);
+        setPendingContactChoice(null);
+      }}
+      onClose={() => setPendingContactChoice(null)}
+      lang={lang}
+    />
   )}
  </div>
  );

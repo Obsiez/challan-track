@@ -18,6 +18,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, OperationType } from '../firebase';
 import { Customer, Transaction, Reminder, UserSettings, SavingGoal, GoalContribution } from '../types';
+import { cleanBangladeshiPhone } from '../lib/phoneUtils';
 
 export function useLedger(
   userId: string | undefined, 
@@ -832,7 +833,7 @@ const lastSubmitRef = useRef<{
  id: customId,
  userId,
  name: trimmedName,
- phone: phone.trim(),
+ phone: cleanBangladeshiPhone(phone),
  outstandingDue: 0,
  createdAt: new Date(),
  updatedAt: new Date()
@@ -1357,7 +1358,7 @@ const lastSubmitRef = useRef<{
   const updateCustomerDetails = async (customerId: string, name: string, phone: string) => {
     if (!userId) return;
     const trimmedName = name.trim();
-    const trimmedPhone = phone.trim();
+    const trimmedPhone = cleanBangladeshiPhone(phone);
 
     // Check for duplicate name excluding the customer being updated
     const isDuplicate = customers.some(c => c.id !== customerId && c.name.toLowerCase() === trimmedName.toLowerCase());

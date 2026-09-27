@@ -18,6 +18,8 @@ import { motion, AnimatePresence, useAnimation } from 'motion/react';
 import { getPhoneticKey, matchesPhonetic } from '../lib/phonetics';
 import { translations, formatNumber, formatIndianNumberString, Language } from '../lib/translations';
 import { triggerHaptic } from '../lib/haptics';
+import ContactNumberPickerModal from './ContactNumberPickerModal';
+import { cleanBangladeshiPhone } from '../lib/phoneUtils';
 
 const WhatsAppIcon = () => (
 	<svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" className="shrink-0">
@@ -290,6 +292,11 @@ export default function CustomerManager({
  const [showAddForm, setShowAddForm] = useState(false);
  const [newName, setNewName] = useState('');
  const [newPhone, setNewPhone] = useState('');
+ const [pendingContactChoice, setPendingContactChoice] = useState<{
+   contactName: string;
+   numbers: string[];
+   onSelect: (number: string) => void;
+ } | null>(null);
  const [formError, setFormError] = useState('');
  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
 
@@ -645,24 +652,55 @@ if (sortBy === 'custom') {
         const options = { multiple: false };
         const contacts = await (navigator as any).contacts.select(props, options);
         if (contacts && contacts.length > 0) {
-          if (contacts[0].tel && contacts[0].tel.length > 0) {
-            const rawPhone = contacts[0].tel[0];
-            const cleaned = rawPhone.replace(/[^\d+]/g, '');
-            onPickPhone(cleaned);
+          const contact = contacts[0];
+          const rawName = (contact.name && contact.name[0]) ? contact.name[0] : '';
+          const rawTels: string[] = contact.tel || [];
+
+          // Clean all numbers (stripping +88 / +880) and deduplicate
+          const cleanedNumbers = Array.from(new Set(
+            rawTels
+              .map(t => cleanBangladeshiPhone(t))
+              .filter(t => t.length > 0)
+          ));
+
+          if (cleanedNumbers.length === 0) {
+            toast.error(lang === 'bn' ? 'কোনো ফোন নম্বর পাওয়া যায়নি।' : 'No phone number found in this contact.');
+            return;
           }
-          if (onPickName && contacts[0].name && contacts[0].name.length > 0) {
-            const rawName = contacts[0].name[0];
-            if (rawName) onPickName(rawName);
+
+          // If contact has multiple numbers, open modern choice modal!
+          if (cleanedNumbers.length > 1) {
+            triggerHaptic('single');
+            setPendingContactChoice({
+              contactName: rawName,
+              numbers: cleanedNumbers,
+              onSelect: (chosen: string) => {
+                onPickPhone(chosen);
+                if (onPickName && rawName) onPickName(rawName);
+                toast.success(lang === 'bn' ? 'নম্বর সফলভাবে নেওয়া হয়েছে' : 'Contact number selected');
+              }
+            });
+            return;
+          }
+
+          // Exactly one number: set directly
+          const singleNumber = cleanedNumbers[0];
+          onPickPhone(singleNumber);
+          if (onPickName && rawName) {
+            onPickName(rawName);
           }
           triggerHaptic('single');
+          toast.success(lang === 'bn' ? 'নম্বর সফলভাবে নেওয়া হয়েছে' : 'Contact number selected');
         }
-      } catch (err) {
-        console.warn("Contact picker failed:", err);
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.warn("Contact picker failed:", err);
+        }
       }
     } else {
       triggerHaptic('double');
       toast.info(lang === 'bn' 
-        ? 'কন্টাক্ট পিকারটি শুধুমাত্র মোবাইল ব্রাউজারে (যেমন ক্রোম) সমর্থিত।' 
+        ? 'কন্টাক্ট পিকারটি শুধুমাত্র মোবাইল ডিভাইসের সমর্থিত ব্রাউজারে উপলব্ধ।' 
         : 'Contact picker is supported on mobile browsers (like Chrome on Android).');
     }
   };
@@ -884,16 +922,17 @@ if (sortBy === 'custom') {
   type="tel"
   placeholder={t.phoneSmsNotice}
   value={newPhone}
-  onChange={(e) => setNewPhone(e.target.value)}
+  onChange={(e) => setNewPhone(cleanBangladeshiPhone(e.target.value))}
   className="flex-1 px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-800 dark:text-white text-base focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
   />
   <button
     type="button"
     onClick={() => handlePickContact(setNewPhone, (name) => { if (!newName.trim()) setNewName(name); })}
-    className="px-3.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-sm shrink-0"
+    className="px-3.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/80 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-sm shrink-0 font-bold text-xs"
     title={lang === 'bn' ? 'কন্টাক্ট নির্বাচন করুন' : 'Pick Contact'}
   >
-    <BookUser className="w-5 h-5" />
+    <BookUser className="w-4.5 h-4.5 text-emerald-600 dark:text-emerald-400" />
+    <span className="hidden sm:inline">{lang === 'bn' ? 'কন্টাক্ট' : 'Contacts'}</span>
   </button>
   </div>
  </div>
@@ -1118,7 +1157,7 @@ if (sortBy === 'custom') {
  					</div>
  					<div className="text-sm text-zinc-500 dark:text-zinc-400 mt-1 flex items-center gap-1.5">
  						<Phone className="w-3.5 h-3.5 shrink-0 text-zinc-400 dark:text-zinc-500" />
- 						<span className="truncate">{c.phone || (lang === 'bn' ? '(ফোন নম্বর নেই)' : '(No phone)')}</span>
+ 						<span className="truncate">{c.phone ? cleanBangladeshiPhone(c.phone) : (lang === 'bn' ? '(ফোন নম্বর নেই)' : '(No phone)')}</span>
  					</div>
  				</div>
  				<div className="text-right shrink-0 flex items-center gap-1 -mr-[2px]">
@@ -1217,7 +1256,7 @@ if (sortBy === 'custom') {
         type="button"
         onClick={() => {
           setEditName(selectedCustomer.name);
-          setEditPhone(selectedCustomer.phone || '');
+          setEditPhone(cleanBangladeshiPhone(selectedCustomer.phone || ''));
           setEditError('');
           // Replace (not push) so edit mode doesn't stack an extra history entry.
           // Back gesture from edit mode will land directly on the clients list.
@@ -1257,17 +1296,17 @@ if (sortBy === 'custom') {
       type="tel"
       id="edit_customer_phone"
       value={editPhone}
-      onChange={(e) => setEditPhone(e.target.value)}
+      onChange={(e) => setEditPhone(cleanBangladeshiPhone(e.target.value))}
       className="flex-1 px-3 py-2.5 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white focus:outline-none focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500 text-base font-extrabold"
       placeholder={lang === 'bn' ? 'যেমন: ০১৭...' : 'e.g. 017...'}
     />
     <button
       type="button"
       onClick={() => handlePickContact(setEditPhone)}
-      className="px-3.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-650 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-center cursor-pointer transition-colors shadow-sm shrink-0"
+      className="px-3.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/80 rounded-xl flex items-center justify-center cursor-pointer transition-all shadow-sm shrink-0"
       title={lang === 'bn' ? 'কন্টাক্ট নির্বাচন করুন' : 'Pick Contact'}
     >
-      <BookUser className="w-5 h-5" />
+      <BookUser className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
     </button>
   </div>
  </div>
@@ -1318,9 +1357,9 @@ if (sortBy === 'custom') {
  {selectedCustomer.phone && (
  <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5 mt-1.5">
  <Phone className="w-4 h-4 text-emerald-500" />
- {selectedCustomer.phone}
+ {cleanBangladeshiPhone(selectedCustomer.phone)}
  <a 
- href={`tel:${selectedCustomer.phone}`}
+ href={`tel:${cleanBangladeshiPhone(selectedCustomer.phone)}`}
  className="ml-2 text-xs font-bold bg-zinc-100 dark:bg-zinc-800 px-3 py-1 rounded-md text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 inline-block cursor-pointer transition-colors"
  >
  {lang === 'bn' ? 'কল করুন' : 'Call Now'}
@@ -2307,6 +2346,21 @@ if (sortBy === 'custom') {
         </div>
       </motion.div>
     </div>
+  )}
+
+  {/* Modern Contact Phone Selector Modal */}
+  {pendingContactChoice && (
+    <ContactNumberPickerModal
+      isOpen={true}
+      contactName={pendingContactChoice.contactName}
+      numbers={pendingContactChoice.numbers}
+      onSelectNumber={(chosen) => {
+        pendingContactChoice.onSelect(chosen);
+        setPendingContactChoice(null);
+      }}
+      onClose={() => setPendingContactChoice(null)}
+      lang={lang}
+    />
   )}
  </div>
  );
