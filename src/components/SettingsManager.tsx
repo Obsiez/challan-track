@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { motion } from 'motion/react';
 import { translations, formatNumber, Language } from '../lib/translations';
 import { triggerHaptic } from '../lib/haptics';
+import { showNotification } from '../lib/notifications';
 
 interface SettingsManagerProps {
   theme: 'light' | 'dark';
@@ -58,7 +59,7 @@ export default function SettingsManager({
 
   const openConfirmAction = (action: any) => {
     setConfirmAction(action);
-    window.history.pushState({ modal: 'settingsConfirmAction' }, '');
+    window.history.pushState({ ...window.history.state, modal: 'settingsConfirmAction' }, '');
   };
 
   const closeConfirmAction = () => {
@@ -165,12 +166,18 @@ export default function SettingsManager({
       const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
+      const fileName = `ChallanTrack_Backup_${new Date().toISOString().slice(0, 10)}.json`;
       a.href = url;
-      a.download = `ChallanTrack_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      triggerHaptic('double');
+      showNotification(lang === 'bn' ? 'ডাউনলোড সম্পন্ন হয়েছে' : 'Download Complete', {
+        body: lang === 'bn' ? `${fileName} ব্যাকআপ ফাইল সফলভাবে ডাউনলোড হয়েছে` : `${fileName} backup downloaded successfully.`,
+        icon: '/icon-192.png'
+      });
       toast.success(lang === 'bn' ? 'ব্যাকআপ সফলভাবে ডাউনলোড করা হয়েছে' : 'Backup downloaded successfully');
     } catch (e) {
       console.warn("Backup export failed:", e);
@@ -791,7 +798,7 @@ export default function SettingsManager({
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-black text-zinc-800 dark:text-white">
-                    {lang === 'bn' ? '১. মার্জ ও আপডেট (সুপারিশকৃত)' : 'Choice 1: Merge & Update (Recommended Default)'}
+                    {lang === 'bn' ? '১. মার্জ ও আপডেট' : 'Choice 1: Merge & Update'}
                   </span>
                   <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-400 rounded-full">
                     {lang === 'bn' ? 'প্রস্তাবিত' : 'Recommended'}
@@ -805,7 +812,7 @@ export default function SettingsManager({
               </div>
             </button>
 
-            {/* Choice 3 Option Card */}
+            {/* Choice 2 Option Card */}
             <button
               onClick={() => setImportState(prev => ({ ...prev, choice: 'skip' }))}
               className={`w-full text-left p-4 rounded-xl border-2 transition-all cursor-pointer flex gap-3 ${
@@ -825,7 +832,7 @@ export default function SettingsManager({
               </div>
               <div>
                 <span className="text-sm font-black text-zinc-800 dark:text-white">
-                  {lang === 'bn' ? '৩. ডুপ্লিকেট এড়িয়ে যান' : 'Choice 3: Skip Duplicates'}
+                  {lang === 'bn' ? '২. ডুপ্লিকেট এড়িয়ে যান' : 'Choice 2: Skip Duplicates'}
                 </span>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-normal">
                   {lang === 'bn' 
@@ -835,7 +842,7 @@ export default function SettingsManager({
               </div>
             </button>
 
-            {/* Choice 2 Option Card */}
+            {/* Choice 3 Option Card */}
             <button
               onClick={() => setImportState(prev => ({ ...prev, choice: 'clear' }))}
               className={`w-full text-left p-4 rounded-xl border-2 transition-all cursor-pointer flex gap-3 ${
@@ -855,7 +862,7 @@ export default function SettingsManager({
               </div>
               <div>
                 <span className="text-sm font-black text-rose-600 dark:text-rose-455">
-                  {lang === 'bn' ? '২. মুছুন ও প্রতিস্থাপন করুন (সম্পূর্ণ রিস্টোর)' : 'Choice 2: Clear & Replace (Full Restore)'}
+                  {lang === 'bn' ? '৩. মুছুন ও প্রতিস্থাপন করুন (সম্পূর্ণ রিস্টোর)' : 'Choice 3: Clear & Replace (Full Restore)'}
                 </span>
                 <p className="text-xs text-rose-600/90 dark:text-rose-400/90 mt-1 leading-normal">
                   {lang === 'bn' 
@@ -865,7 +872,7 @@ export default function SettingsManager({
               </div>
             </button>
 
-            {/* Choice 2 Secondary Verification Input */}
+            {/* Choice 3 Secondary Verification Input */}
             {importState.choice === 'clear' && (
               <motion.div 
                 initial={{ opacity: 0, height: 0 }}

@@ -115,8 +115,10 @@ export default function App() {
         triggerHaptic('tick');
       }
       if (e.state) {
-        setCurrentTab(e.state.tab || 'home');
-        setSelectedCustomerIdForDetail(e.state.customerId || null);
+        if (e.state.tab) {
+          setCurrentTab(e.state.tab);
+          setSelectedCustomerIdForDetail(e.state.customerId !== undefined ? e.state.customerId : null);
+        }
         setIsQuickEntryOpen(isNowQuickEntryOpen);
       } else {
         setIsQuickEntryOpen(false);
@@ -238,7 +240,10 @@ export default function App() {
     createGoal,
     addGoalContribution,
     deleteGoal,
-    updateGoalStatus
+    updateGoalStatus,
+    updateGoalTitle,
+    editGoalContribution,
+    deleteGoalContribution
   } = useLedger(user?.uid, selectedDailyDate, selectedCustomerIdForDetail);
 
   const dateInputRef = React.useRef<HTMLInputElement>(null);
@@ -315,10 +320,13 @@ export default function App() {
           const startOfTarget = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime();
           const diffDays = Math.round((startOfTarget - startOfToday) / (1000 * 60 * 60 * 24));
 
-          // Send daily reminder if within 7 days (7, 6, 5, 4, 3, 2, 1, 0 days remaining)
+          // Send reminders frequently (every 2.5 hours) if within 7 days (7, 6, 5, 4, 3, 2, 1, 0 days remaining)
           if (diffDays >= 0 && diffDays <= 7) {
-            const notifiedKey = `notified_emi_${rem.id}_${todayDateStr}`;
-            if (!localStorage.getItem(notifiedKey)) {
+            const lastNotifiedKey = `last_notified_emi_${rem.id}`;
+            const lastNotifiedTime = parseInt(localStorage.getItem(lastNotifiedKey) || '0');
+            const hoursPassed = (nowTime - lastNotifiedTime) / (1000 * 60 * 60);
+
+            if (hoursPassed >= 2.5) {
               const amountStr = rem.installmentAmount ? ` (৳${formatNumber(rem.installmentAmount, lang)})` : '';
               let bodyText = '';
               if (diffDays === 0) {
@@ -339,19 +347,22 @@ export default function App() {
                 body: bodyText,
                 icon: '/icon-192.png',
                 badge: '/icon-192.png',
-                tag: `emi-${rem.id}-${todayDateStr}`
+                tag: `emi-${rem.id}`
               });
 
               triggerHaptic([300, 150, 300]);
-              localStorage.setItem(notifiedKey, 'true');
+              localStorage.setItem(lastNotifiedKey, String(nowTime));
             }
           }
         } else {
           // 2. Standard Customer Follow-up Reminder
           const remDueDate = new Date(rem.dueDate).getTime();
           if (remDueDate <= nowTime) {
-            const notifiedKey = `notified_rem_${rem.id}_${todayDateStr}`;
-            if (!localStorage.getItem(notifiedKey)) {
+            const lastNotifiedKey = `last_notified_rem_${rem.id}`;
+            const lastNotifiedTime = parseInt(localStorage.getItem(lastNotifiedKey) || '0');
+            const hoursPassed = (nowTime - lastNotifiedTime) / (1000 * 60 * 60);
+
+            if (hoursPassed >= 2.5) {
               showNotification(lang === 'bn' ? 'চালান ট্র্যাক - বকেয়া তাগাদা' : 'Challan Track - Reminder', {
                 body: lang === 'bn'
                   ? `${rem.customerName}: ${rem.notes || 'বকেয়া আদায়ের ফলো-আপ করার সময় হয়েছে।'}`
@@ -362,7 +373,7 @@ export default function App() {
               });
 
               triggerHaptic([200, 100, 200]);
-              localStorage.setItem(notifiedKey, 'true');
+              localStorage.setItem(lastNotifiedKey, String(nowTime));
             }
           }
         }
@@ -707,11 +718,11 @@ export default function App() {
  {/* Reminders Header Action Button */}
  <button
  onClick={() => { triggerHaptic('single'); navigateTo('reminders'); }}
- className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs flex items-center gap-2 shadow-sm transition-all cursor-pointer"
+ className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs sm:text-sm flex items-center gap-2 shadow-sm transition-all cursor-pointer"
  title={t.reminders}
  id="header_reminders_btn"
  >
- <Bell className="w-4 h-4 stroke-[2.2]" />
+ <Bell className="w-4.5 h-4.5 stroke-[2.2]" />
  <span>{t.reminders}</span>
  </button>
  </div>
@@ -788,6 +799,9 @@ updateSettings={updateSettings}
   addGoalContribution={addGoalContribution}
   deleteGoal={deleteGoal}
   updateGoalStatus={updateGoalStatus}
+  updateGoalTitle={updateGoalTitle}
+  editGoalContribution={editGoalContribution}
+  deleteGoalContribution={deleteGoalContribution}
   reminders={reminders}
   addReminder={addReminder}
   deleteReminder={deleteReminder}
@@ -882,7 +896,7 @@ updateSettings={updateSettings}
                 {lang === 'bn' ? 'মোট বকেয়া' : 'Total Dues'}
               </div>
               <div className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-500">
-                +৳ {formatNumber(todayTransactions.filter(tx => tx.type === 'due').reduce((sum, tx) => sum + tx.amount, 0), lang)}
+                +৳ {formatNumber(dailyTransactions.filter(tx => tx.type === 'due').reduce((sum, tx) => sum + tx.amount, 0), lang)}
               </div>
             </div>
             <div className="border-l border-zinc-200 dark:border-zinc-800 space-y-0.5">
@@ -890,7 +904,7 @@ updateSettings={updateSettings}
                 {lang === 'bn' ? 'মোট আদায়' : 'Total Got'}
               </div>
               <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-500">
-                -৳ {formatNumber(todayTransactions.filter(tx => tx.type === 'payment').reduce((sum, tx) => sum + tx.amount, 0), lang)}
+                -৳ {formatNumber(dailyTransactions.filter(tx => tx.type === 'payment').reduce((sum, tx) => sum + tx.amount, 0), lang)}
               </div>
             </div>
             <div className="border-l border-zinc-200 dark:border-zinc-800 space-y-0.5">
@@ -898,7 +912,7 @@ updateSettings={updateSettings}
                 {lang === 'bn' ? 'মোট হিসাব' : 'Total Tx'}
               </div>
               <div className="text-base sm:text-lg font-black text-zinc-850 dark:text-white">
-                {formatNumber(todayTransactions.length, lang)}
+                {formatNumber(dailyTransactions.length, lang)}
               </div>
             </div>
           </div>
@@ -919,17 +933,19 @@ updateSettings={updateSettings}
           {/* Scroll-optimized ledger entries list (grows naturally, no inner scroll, thicker separator line) */}
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-lg overflow-hidden">
             <div className="divide-y-2 divide-zinc-200/80 dark:divide-zinc-800/85">
-              {todayTransactions.length === 0 ? (
+              {dailyTransactions.length === 0 ? (
                 <div className="py-16 text-center text-zinc-400 dark:text-zinc-500">
                   <div className="flex flex-col items-center gap-3">
                     <ClipboardList className="w-12 h-12 stroke-[1.5]" />
                     <p className="font-bold text-base">
-                      {lang === 'bn' ? 'আজ কোন লেনদেন হয়নি' : 'No transactions recorded'}
+                      {selectedDailyDate.toDateString() === new Date().toDateString()
+                        ? (lang === 'bn' ? 'আজ কোন লেনদেন হয়নি' : 'No transactions recorded today')
+                        : (lang === 'bn' ? 'এই তারিখে কোন লেনদেন নেই' : 'No transactions recorded for this date')}
                     </p>
                   </div>
                 </div>
               ) : (
-                todayTransactions.map(tx => (
+                dailyTransactions.map(tx => (
                   <div 
                     key={tx.id} 
                     onClick={() => navigateTo('customers', tx.customerId)}
@@ -979,19 +995,17 @@ updateSettings={updateSettings}
   )}
   </main>
 
-  {/* FAST ACCESS FLOATING TRIGGER (Only home & customers) */}
- <button
- onClick={openQuickEntry}
- className={`fixed w-14 h-14 bg-rose-600 hover:bg-rose-700 text-white rounded-full flex items-center justify-center shadow-lg shadow-rose-200 dark:shadow-none transition-all cursor-pointer z-40 ${
-   (currentTab === 'home' || currentTab === 'customers')
-     ? 'bottom-22 right-6 sm:bottom-36 sm:right-[calc(50%-285px)] md:right-[calc(50%-365px)] lg:right-[calc(50%-445px)] xl:right-[calc(50%-565px)] flex'
-     : 'hidden sm:flex sm:bottom-36 sm:right-[calc(50%-285px)] md:right-[calc(50%-365px)] lg:right-[calc(50%-445px)] xl:right-[calc(50%-565px)]'
- }`}
- title={t.recordEntry}
- id="fab_entry_btn"
- >
- <Plus className="w-8 h-8 stroke-[3]" />
- </button>
+  {/* FAST ACCESS FLOATING TRIGGER: Smartly visible only on home and customer list (hides on user panel, goals, settings, etc.) */}
+  {(currentTab === 'home' || (currentTab === 'customers' && !selectedCustomerIdForDetail)) && (
+    <button
+      onClick={openQuickEntry}
+      className="fixed w-14 h-14 bg-rose-600 hover:bg-rose-700 text-white rounded-full flex items-center justify-center shadow-lg shadow-rose-200 dark:shadow-none transition-all cursor-pointer z-40 bottom-22 right-6 sm:bottom-36 sm:right-[calc(50%-285px)] md:right-[calc(50%-365px)] lg:right-[calc(50%-445px)] xl:right-[calc(50%-565px)]"
+      title={t.recordEntry}
+      id="fab_entry_btn"
+    >
+      <Plus className="w-8 h-8 stroke-[3]" />
+    </button>
+  )}
 
  {/* BOTTOM NAVIGATION TABS (Tablet and Smartphone Thumb-Optimized) */}
  <nav className="fixed bottom-0 inset-x-0 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 py-2 px-4 shadow-xl z-40 sm:py-3 md:py-4">

@@ -18,6 +18,7 @@ import { motion, AnimatePresence, useAnimation } from 'motion/react';
 import { getPhoneticKey, matchesPhonetic } from '../lib/phonetics';
 import { translations, formatNumber, formatIndianNumberString, Language } from '../lib/translations';
 import { triggerHaptic } from '../lib/haptics';
+import { showNotification } from '../lib/notifications';
 import ContactNumberPickerModal from './ContactNumberPickerModal';
 import { cleanBangladeshiPhone } from '../lib/phoneUtils';
 
@@ -533,20 +534,19 @@ const [editingTx, setEditingTx] = useState<Transaction | null>(null);
    setEditingTx(tx);
    setEditTxAmount(tx.amount.toString());
    setEditTxDesc(tx.description || '');
-   window.history.pushState({ modal: 'editTx' }, '');
+   window.history.pushState({ ...window.history.state, modal: 'editTx' }, '');
  };
 
  const openDeleteTxModal = (tx: Transaction) => {
    setDeletingTx(tx);
-   window.history.pushState({ modal: 'deleteTx' }, '');
+   window.history.pushState({ ...window.history.state, modal: 'deleteTx' }, '');
  };
 
  const closeTxModals = () => {
+    setEditingTx(null);
+    setDeletingTx(null);
     if (window.history.state?.modal === 'editTx' || window.history.state?.modal === 'deleteTx') {
       window.history.back(); // This triggers popstate, which sets states to null
-    } else {
-      setEditingTx(null);
-      setDeletingTx(null);
     }
   };
 
@@ -718,7 +718,7 @@ if (sortBy === 'custom') {
       );
       setReceiptResult(result);
       try {
-        window.history.pushState({ modal: 'receiptPreview' }, '');
+        window.history.pushState({ ...window.history.state, modal: 'receiptPreview' }, '');
       } catch {
         // history navigation fallback
       }
@@ -831,7 +831,7 @@ if (sortBy === 'custom') {
   };
 
   const handleDelete = (c: Customer) => {
-    window.history.pushState({ modal: 'deleteCustomer' }, '');
+    window.history.pushState({ ...window.history.state, modal: 'deleteCustomer' }, '');
     setDeletingCustomer(c);
   };
 
@@ -1115,7 +1115,7 @@ if (sortBy === 'custom') {
  			onWhatsApp={() => {
  				if (!c.phone || !c.phone.trim()) {
  					triggerHaptic('double');
- 					window.history.pushState({ modal: 'phoneWarningCustomer' }, '');
+ 					window.history.pushState({ ...window.history.state, modal: 'phoneWarningCustomer' }, '');
  					setPhoneWarningCustomer(c);
  				} else {
  					triggerHaptic('single');
@@ -1145,7 +1145,7 @@ if (sortBy === 'custom') {
  						onClick={(e) => {
  							e.stopPropagation();
  							triggerHaptic('single');
- 							window.history.pushState({ modal: 'pinActionCustomer' }, '');
+ 							window.history.pushState({ ...window.history.state, modal: 'pinActionCustomer' }, '');
  							setPinActionCustomer(c);
  						}}
  						className="text-lg font-bold text-zinc-900 dark:text-white truncate flex items-center gap-1.5 cursor-pointer hover:opacity-80 transition-opacity"
@@ -1167,7 +1167,7 @@ if (sortBy === 'custom') {
  								? 'text-[#e0385e]'
  								: c.outstandingDue < 0
  									? 'text-[#00d3f2]'
- 									: 'text-emerald-700 dark:text-emerald-400'
+ 									: 'text-zinc-400 dark:text-zinc-350'
  						}`}>
  							{c.outstandingDue === 0 ? (
  								lang === 'bn' ? '৳ ০' : '৳ 0'
@@ -1175,7 +1175,7 @@ if (sortBy === 'custom') {
  								`${c.outstandingDue < 0 ? '-' : ''}৳ ${formatNumber(Math.abs(c.outstandingDue), lang)}`
  							)}
  						</div>
- 						<div className="text-sm font-bold text-zinc-400 dark:text-zinc-500 mt-0.5">
+ 						<div className="text-sm font-bold text-zinc-400 dark:text-zinc-350 mt-0.5">
  							{c.outstandingDue > 0 ? (
  								lang === 'bn' ? 'পাবেন' : 'due'
  							) : c.outstandingDue < 0 ? (
@@ -1302,7 +1302,26 @@ if (sortBy === 'custom') {
     />
     <button
       type="button"
-      onClick={() => handlePickContact(setEditPhone)}
+      onClick={() => handlePickContact(async (pickedPhone) => {
+        setEditPhone(pickedPhone);
+        if (selectedCustomer) {
+          setIsSavingEdit(true);
+          try {
+            await updateCustomerDetails(selectedCustomer.id, editName.trim() || selectedCustomer.name, pickedPhone);
+            setIsEditingCustomer(false);
+            triggerHaptic('single');
+            toast.success(lang === 'bn' ? 'মোবাইল নম্বর ও প্রোফাইল স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়েছে' : 'Profile saved automatically');
+          } catch (err: any) {
+            if (err && (err as any).message === 'DUPLICATE_NAME') {
+              setEditError(lang === 'bn' ? 'এই নামের গ্রাহক ইতিমধ্যে খতিয়ানে সংরক্ষিত আছে।' : 'A customer with this name already exists.');
+            } else {
+              setEditError(lang === 'bn' ? 'সংরক্ষণ করতে ব্যর্থ হয়েছে' : 'Failed to save changes');
+            }
+          } finally {
+            setIsSavingEdit(false);
+          }
+        }
+      })}
       className="px-3.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/80 rounded-xl flex items-center justify-center cursor-pointer transition-all shadow-sm shrink-0"
       title={lang === 'bn' ? 'কন্টাক্ট নির্বাচন করুন' : 'Pick Contact'}
     >
@@ -1354,7 +1373,7 @@ if (sortBy === 'custom') {
  ) : (
  <div>
  <h2 className="text-2xl font-black text-zinc-900 dark:text-white">{selectedCustomer.name}</h2>
- {selectedCustomer.phone && (
+ {selectedCustomer.phone ? (
  <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5 mt-1.5">
  <Phone className="w-4 h-4 text-emerald-500" />
  {cleanBangladeshiPhone(selectedCustomer.phone)}
@@ -1365,6 +1384,23 @@ if (sortBy === 'custom') {
  {lang === 'bn' ? 'কল করুন' : 'Call Now'}
  </a>
  </p>
+ ) : (
+ <button
+ type="button"
+ onClick={() => handlePickContact(async (pickedPhone) => {
+   try {
+     await updateCustomerDetails(selectedCustomer.id, selectedCustomer.name, pickedPhone);
+     triggerHaptic('single');
+     toast.success(lang === 'bn' ? 'মোবাইল নম্বর স্বয়ংক্রিয়ভাবে সংরক্ষিত হয়েছে' : 'Phone number saved automatically');
+   } catch (e) {
+     toast.error(lang === 'bn' ? 'সংরক্ষণ ব্যর্থ হয়েছে' : 'Failed to save phone number');
+   }
+ })}
+ className="mt-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1.5 cursor-pointer"
+ >
+ <Phone className="w-3.5 h-3.5" />
+ <span>{lang === 'bn' ? '+ মোবাইল নম্বর যুক্ত করুন' : '+ Add phone number'}</span>
+ </button>
  )}
  </div>
  )}
@@ -1377,7 +1413,7 @@ if (sortBy === 'custom') {
  ? 'text-[#e0385e]' 
  : selectedCustomer.outstandingDue < 0 
  ? 'text-[#00d3f2]' 
- : 'text-emerald-700 dark:text-emerald-400'
+ : 'text-zinc-400 dark:text-zinc-350'
  }`}>
  {selectedCustomer.outstandingDue === 0 ? t.settled : `৳ ${formatNumber(selectedCustomer.outstandingDue, lang)}`}
  </span>
@@ -2298,8 +2334,12 @@ if (sortBy === 'custom') {
             <button
               type="button"
               onClick={() => {
-                triggerHaptic('single');
+                triggerHaptic('double');
                 downloadReceiptImage(receiptResult.dataUrl, receiptResult.fileName);
+                showNotification(lang === 'bn' ? 'রসিদ ডাউনলোড সম্পন্ন' : 'Receipt Downloaded', {
+                  body: lang === 'bn' ? `${receiptResult.fileName} সফলভাবে ডাউনলোড হয়েছে` : `${receiptResult.fileName} downloaded successfully.`,
+                  icon: '/icon-192.png'
+                });
                 toast.success(lang === 'bn' ? 'রসিদ ইমেজ ডাউনলোড সম্পন্ন হয়েছে' : 'Receipt downloaded successfully');
               }}
               className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm cursor-pointer"

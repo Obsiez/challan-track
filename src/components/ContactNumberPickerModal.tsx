@@ -5,6 +5,60 @@ import { triggerHaptic } from '../lib/haptics';
 import { Language, formatNumber } from '../lib/translations';
 import { cleanBangladeshiPhone, formatPhoneDisplay, getBdOperator } from '../lib/phoneUtils';
 
+const OperatorLogo = ({ name, className = "w-4 h-4" }: { name: string; className?: string }) => {
+  switch (name) {
+    case 'Grameenphone':
+      return (
+        <svg viewBox="0 0 32 32" className={className} fill="none">
+          <circle cx="16" cy="16" r="16" fill="#0099e5" />
+          <path d="M16 6C13.5 10 11 14 16 16C16 11 18.5 6 16 6Z" fill="white" />
+          <path d="M26 16C22 13.5 18 11 16 16C21 16 26 18.5 26 16Z" fill="white" />
+          <path d="M9 22C12.5 20.5 15 18.5 16 16C13.5 14 8 18 9 22Z" fill="white" />
+        </svg>
+      );
+    case 'Robi':
+      return (
+        <svg viewBox="0 0 32 32" className={className} fill="none">
+          <circle cx="16" cy="16" r="16" fill="#e20613" />
+          <path d="M16 7L24 16L16 25L8 16Z" fill="#ffde00" />
+          <path d="M16 7L24 16H16Z" fill="#ffffff" />
+          <path d="M8 16L16 25V16Z" fill="#8b0000" opacity="0.6" />
+        </svg>
+      );
+    case 'Banglalink':
+      return (
+        <svg viewBox="0 0 32 32" className={className} fill="none">
+          <circle cx="16" cy="16" r="16" fill="#ff6600" />
+          <path d="M9 22C10 15 15 11 22 9C19 14 16 18 9 22Z" fill="white" />
+          <path d="M13 24C16 19 20 15 25 12C23 17 19 21 13 24Z" fill="#ffe600" />
+        </svg>
+      );
+    case 'Airtel':
+      return (
+        <svg viewBox="0 0 32 32" className={className} fill="none">
+          <circle cx="16" cy="16" r="16" fill="#e40000" />
+          <path d="M16 9C12 9 9.5 11.5 9.5 15C9.5 19 13.5 22.5 17 22.5C19.5 22.5 21.5 21.2 22 19H19.5C19 19.8 18 20.5 17 20.5C14.5 20.5 12 18.2 12 15C12 12.8 13.8 11 16 11C18 11 19.5 12.5 19.5 15V22.5H22V15C22 11.5 19.5 9 16 9Z" fill="white" />
+        </svg>
+      );
+    case 'Teletalk':
+      return (
+        <svg viewBox="0 0 32 32" className={className} fill="none">
+          <circle cx="16" cy="16" r="16" fill="#008855" />
+          <path d="M9 16C9 12 12 9 16 9C20 9 23 12 23 16C23 20 20 23 16 23C13.5 23 11.5 21.8 10.5 20L13 18.5C13.5 19.5 14.5 20.5 16 20.5C18.5 20.5 20.5 18.5 20.5 16C20.5 13.5 18.5 11.5 16 11.5C13.5 11.5 11.5 13.5 11.5 16H14L10.5 20L9 16Z" fill="white" />
+          <circle cx="16" cy="16" r="2.5" fill="#ffde00" />
+        </svg>
+      );
+    default:
+      return (
+        <svg viewBox="0 0 32 32" className={className} fill="none">
+          <circle cx="16" cy="16" r="16" fill="#10b981" />
+          <path d="M12 10H20V22H12V10Z" stroke="white" strokeWidth="2" strokeLinejoin="round" />
+          <circle cx="16" cy="19" r="1" fill="white" />
+        </svg>
+      );
+  }
+};
+
 interface ContactNumberPickerModalProps {
   isOpen: boolean;
   contactName: string;
@@ -159,8 +213,9 @@ export default function ContactNumberPickerModal({
 
                     {/* Right: Operator Badge & Selection Status */}
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className={`px-2.5 py-1 rounded-lg text-2xs font-extrabold border ${operator.badgeClass}`}>
-                        {operator.name}
+                      <span className={`px-2.5 py-1.5 rounded-xl text-2xs font-extrabold border ${operator.badgeClass} flex items-center gap-1.5 shadow-xs`}>
+                        <OperatorLogo name={operator.name} className="w-4 h-4 shrink-0 rounded-full" />
+                        <span>{operator.name}</span>
                       </span>
                     </div>
                   </div>

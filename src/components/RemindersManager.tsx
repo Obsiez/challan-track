@@ -88,6 +88,21 @@ export default function RemindersManager({
         setErrorMsg(lang === 'bn' ? 'অনুগ্রহ করে গ্রাহক নির্বাচন করুন।' : 'Choose a customer to remind.');
         return;
       }
+
+      // Check if an active reminder already exists for this customer
+      const existingCustomerReminder = reminders.find(
+        r => r.active && (r.type === 'customer' || (!r.type && !r.goalId)) && r.customerId === selectedCustomerId
+      );
+      if (existingCustomerReminder) {
+        const cust = customers.find(c => c.id === selectedCustomerId);
+        setErrorMsg(
+          lang === 'bn' 
+            ? `এই গ্রাহকের (${cust?.name || ''}) জন্য ইতিমধ্যে একটি সক্রিয় তাগাদা রিমাইন্ডার রয়েছে।` 
+            : `An active reminder already exists for this customer (${cust?.name || ''}).`
+        );
+        return;
+      }
+
       if (!dueDateStr) {
         setErrorMsg(lang === 'bn' ? 'অনুগ্রহ করে তারিখ বেছে নিন।' : 'Please choose a due date.');
         return;
@@ -124,6 +139,23 @@ export default function RemindersManager({
         setErrorMsg(lang === 'bn' ? 'কিস্তি বা ঋণের শিরোনাম লিখুন।' : 'Please enter an EMI title.');
         return;
       }
+
+      // Check if an active reminder already exists for this EMI goal / title
+      const existingEmiReminder = reminders.find(
+        r => r.active && r.type === 'emi' && (
+          (selectedGoalId && r.goalId === selectedGoalId) ||
+          (r.customerName?.trim().toLowerCase() === title.toLowerCase())
+        )
+      );
+      if (existingEmiReminder) {
+        setErrorMsg(
+          lang === 'bn'
+            ? `এই কিস্তির (${title}) জন্য ইতিমধ্যে একটি সক্রিয় রিমাইন্ডার রয়েছে।`
+            : `An active reminder already exists for this EMI (${title}).`
+        );
+        return;
+      }
+
       if (!emiDayOfMonth || emiDayOfMonth < 1 || emiDayOfMonth > 31) {
         setErrorMsg(lang === 'bn' ? 'মাসের ১ থেকে ৩১ তারিখের মধ্যে একটি দিন নির্বাচন করুন।' : 'Choose a day of month between 1 and 31.');
         return;
@@ -291,7 +323,7 @@ export default function RemindersManager({
         </h3>
         <button
           onClick={() => setShowAddForm(!showAddForm)}
-          className="text-emerald-600 dark:text-emerald-400 text-sm font-bold bg-emerald-50 dark:bg-emerald-950/30 px-4 py-2 rounded-full cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+          className="text-emerald-600 dark:text-emerald-400 text-sm font-bold bg-emerald-50 dark:bg-emerald-950/30 px-4 py-2 rounded-xl cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
         >
           {showAddForm ? (lang === 'bn' ? 'ফর্ম বন্ধ করুন' : 'Close Scheduler') : `+ ${t.scheduleTitle}`}
         </button>
@@ -359,15 +391,21 @@ export default function RemindersManager({
                     <option value="" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
                       {t.selectCustomerPrompt}
                     </option>
-                    {customers.map(c => (
-                      <option 
-                        key={c.id} 
-                        value={c.id} 
-                        className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                      >
-                        {c.name} (Due: ৳ {formatNumber(c.outstandingDue || 0, lang)})
-                      </option>
-                    ))}
+                    {customers.map(c => {
+                      const hasActive = reminders.some(
+                        r => r.active && (r.type === 'customer' || (!r.type && !r.goalId)) && r.customerId === c.id
+                      );
+                      return (
+                        <option 
+                          key={c.id} 
+                          value={c.id} 
+                          disabled={hasActive}
+                          className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 disabled:text-zinc-400 dark:disabled:text-zinc-600"
+                        >
+                          {c.name} (Due: ৳ {formatNumber(c.outstandingDue || 0, lang)}){hasActive ? (lang === 'bn' ? ' — [ইতিমধ্যে সক্রিয়]' : ' — [Already set]') : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -442,15 +480,21 @@ export default function RemindersManager({
                         <option value="" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
                           {lang === 'bn' ? '-- নতুন কিস্তির নাম লিখুন --' : '-- Custom EMI Title --'}
                         </option>
-                        {goals.filter(g => g.status === 'active').map(g => (
-                          <option 
-                            key={g.id} 
-                            value={g.id}
-                            className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                          >
-                            {g.title} ({g.type === 'deposit' ? 'EMI' : 'Savings'} - ৳{formatNumber(g.installmentAmount || g.targetAmount, lang)})
-                          </option>
-                        ))}
+                        {goals.filter(g => g.status === 'active').map(g => {
+                          const hasActive = reminders.some(
+                            r => r.active && r.type === 'emi' && r.goalId === g.id
+                          );
+                          return (
+                            <option 
+                              key={g.id} 
+                              value={g.id}
+                              disabled={hasActive}
+                              className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 disabled:text-zinc-400 dark:disabled:text-zinc-600"
+                            >
+                              {g.title} ({g.type === 'deposit' ? 'EMI' : 'Savings'} - ৳{formatNumber(g.installmentAmount || g.targetAmount, lang)}){hasActive ? (lang === 'bn' ? ' — [ইতিমধ্যে সক্রিয়]' : ' — [Already set]') : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                     </div>
                   )}

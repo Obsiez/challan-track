@@ -472,11 +472,28 @@ const lastSubmitRef = useRef<{
     }
   }, [userId, isOfflineFallback, activeCustomerId, transactions, allCustomerTxs, customerTxLimit]);
 
-// 3b. Sync Daily Archive Transactions (queries Firestore for selected date range)
+// 3b. Sync Daily Archive Transactions (Option A: Instant local cache + windowed Firestore query)
   useEffect(() => {
     if (!userId || userId === 'local-guest-session' || isOfflineFallback || !selectedDailyDate) {
       setArchiveTransactions([]);
       return;
+    }
+
+    const dayKey = `${selectedDailyDate.getFullYear()}-${String(selectedDailyDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDailyDate.getDate()).padStart(2, '0')}`;
+
+    // Try loading immediately from local cache if available for instant display
+    try {
+      const cached = localStorage.getItem(`easy_due_daily_${userId}_${dayKey}`);
+      if (cached) {
+        const parsed: Transaction[] = JSON.parse(cached).map((t: any) => ({
+          ...t,
+          date: parseTxDate(t.date),
+          createdAt: parseTxDate(t.createdAt)
+        }));
+        setArchiveTransactions(parsed);
+      }
+    } catch (e) {
+      console.warn("Failed to load cached daily txs:", e);
     }
 
     // Query firestore directly for the selected date range
@@ -504,7 +521,21 @@ const lastSubmitRef = useRef<{
           createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
         } as Transaction);
       });
+
+      list.sort((a, b) => {
+        const dateA = parseTxDate(a.date).getTime();
+        const dateB = parseTxDate(b.date).getTime();
+        return dateB - dateA;
+      });
+
       setArchiveTransactions(list);
+
+      // Save to local cache for instant future loads
+      try {
+        localStorage.setItem(`easy_due_daily_${userId}_${dayKey}`, JSON.stringify(list));
+      } catch (e) {
+        console.warn("Failed to cache daily txs:", e);
+      }
     }, (error) => {
       console.warn("Firestore error syncing daily archive transactions:", error);
     });
@@ -734,19 +765,23 @@ const lastSubmitRef = useRef<{
  }
 
  const remindersRef = collection(db, 'users', userId, 'reminders');
- const q = query(remindersRef, orderBy('dueDate', 'asc'));
 
- const unsubscribe = onSnapshot(q, (snapshot) => {
+ const unsubscribe = onSnapshot(remindersRef, (snapshot) => {
  const list: Reminder[] = [];
  snapshot.forEach((docSnap) => {
  const data = docSnap.data();
+ const rawDue = data.dueDate;
+ const parsedDueDate = rawDue?.toDate ? rawDue.toDate() : (rawDue ? new Date(rawDue) : new Date());
+ const rawCreated = data.createdAt;
+ const parsedCreatedAt = rawCreated?.toDate ? rawCreated.toDate() : (rawCreated ? new Date(rawCreated) : new Date());
  list.push({
  ...data,
  id: docSnap.id,
- dueDate: data.dueDate?.toDate ? data.dueDate.toDate() : new Date(data.dueDate),
- createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
+ dueDate: parsedDueDate,
+ createdAt: parsedCreatedAt,
  } as Reminder);
  });
+ list.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
  setReminders(list);
  saveLocalReminders(list);
  }, (error) => {
@@ -914,6 +949,53 @@ const lastSubmitRef = useRef<{
     batch.set(summaryRef, updates, { merge: true });
   };
 
+  // Helper to adjust daily summary documents atomically inside a batch (Option A: Quickbook Sync)
+  const adjustDailySummary = (
+    batch: any, 
+    uid: string, 
+    oldTx: Transaction | null, 
+    newTx: Transaction | null
+  ) => {
+    const getTxDayKey = (tx: Transaction) => {
+      const d = parseTxDate(tx.date);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const targetDay = newTx ? getTxDayKey(newTx) : (oldTx ? getTxDayKey(oldTx) : null);
+    if (!targetDay) return;
+
+    const summaryRef = doc(db, 'users', uid, 'daily_summaries', targetDay);
+
+    let diffDues = 0;
+    let diffPayments = 0;
+    let diffCount = 0;
+
+    if (oldTx) {
+      diffCount--;
+      if (oldTx.type === 'due') diffDues -= oldTx.amount;
+      else diffPayments -= oldTx.amount;
+    }
+    if (newTx) {
+      diffCount++;
+      if (newTx.type === 'due') diffDues += newTx.amount;
+      else diffPayments += newTx.amount;
+    }
+
+    const updates: any = {
+      id: targetDay,
+      dateStr: targetDay,
+      dues: increment(diffDues),
+      payments: increment(diffPayments),
+      count: increment(diffCount),
+      updatedAt: serverTimestamp()
+    };
+
+    batch.set(summaryRef, updates, { merge: true });
+  };
+
   const rebuildMonthlySummaries = async (uid: string) => {
     if (!uid || uid === 'local-guest-session') return;
     if ((window as any).isRebuildingSummaries) return;
@@ -1073,6 +1155,10 @@ const lastSubmitRef = useRef<{
    setActiveCustomerTxCount(prev => prev + 1);
  }
 
+ if (selectedDailyDate && parseTxDate(date).toDateString() === selectedDailyDate.toDateString()) {
+   setArchiveTransactions(prev => [newTx, ...prev.filter(t => t.id !== newTx.id)]);
+ }
+
  adjustLocalMonthlySummaries(null, newTx);
 
  if (settings) {
@@ -1106,6 +1192,7 @@ const lastSubmitRef = useRef<{
  });
 
  adjustMonthlySummary(batch, userId, null, newTx);
+ adjustDailySummary(batch, userId, null, newTx);
 
  const userDocRef = doc(db, 'users', userId);
  batch.update(userDocRef, {
@@ -1136,6 +1223,21 @@ const lastSubmitRef = useRef<{
  if (!userId) return;
  const customer = customers.find(c => c.id === customerId);
  const resolvedName = extra?.customerName || customer?.name || 'EMI Account';
+ const reminderType = extra?.type || 'customer';
+
+ // Prevent duplicate active reminders for the same person or same EMI
+ const duplicateReminders = reminders.filter(r => {
+   if (!r.active) return false;
+   if (reminderType === 'emi') {
+     if (r.type !== 'emi') return false;
+     if (extra?.goalId && r.goalId === extra.goalId) return true;
+     if (resolvedName && r.customerName && r.customerName.trim().toLowerCase() === resolvedName.trim().toLowerCase()) return true;
+     return false;
+   } else {
+     if (r.type === 'emi') return false;
+     return customerId && r.customerId === customerId;
+   }
+ });
 
  const customRemId = doc(collection(db, 'temp')).id;
  const newReminder: Reminder = {
@@ -1147,13 +1249,14 @@ const lastSubmitRef = useRef<{
  dueDate,
  active: true,
  createdAt: new Date(),
- type: extra?.type || 'customer',
+ type: reminderType,
  goalId: extra?.goalId,
  emiDayOfMonth: extra?.emiDayOfMonth,
  installmentAmount: extra?.installmentAmount
  };
 
- const updatedReminders = [newReminder, ...reminders];
+ const filteredReminders = reminders.filter(r => !duplicateReminders.some(d => d.id === r.id));
+ const updatedReminders = [newReminder, ...filteredReminders];
  setReminders(updatedReminders);
  saveLocalReminders(updatedReminders);
 
@@ -1161,14 +1264,36 @@ const lastSubmitRef = useRef<{
  return;
  }
 
+ // Delete duplicates from Firestore asynchronously
+ for (const dup of duplicateReminders) {
+   try {
+     deleteDoc(doc(db, 'users', userId, 'reminders', dup.id));
+   } catch (err) {
+     console.warn("Failed to remove duplicate reminder from Firestore:", err);
+   }
+ }
+
  const remindersRef = collection(db, 'users', userId, 'reminders');
  const newReminderRef = doc(remindersRef, customRemId);
- try {
- await setDoc(newReminderRef, {
- ...newReminder,
+ const firestoreReminder: any = {
+ id: customRemId,
+ userId,
+ customerId: customerId || extra?.goalId || '',
+ customerName: resolvedName,
+ notes: notes.trim(),
  dueDate,
- createdAt: serverTimestamp()
- });
+ active: true,
+ createdAt: serverTimestamp(),
+ type: reminderType
+ };
+ if (extra?.goalId) firestoreReminder.goalId = extra.goalId;
+ if (extra?.emiDayOfMonth !== undefined) firestoreReminder.emiDayOfMonth = Number(extra.emiDayOfMonth);
+ if (extra?.installmentAmount !== undefined && !isNaN(Number(extra.installmentAmount))) {
+ firestoreReminder.installmentAmount = Number(extra.installmentAmount);
+ }
+
+ try {
+ await setDoc(newReminderRef, firestoreReminder);
  } catch (err) {
  console.warn("Firestore addReminder failed, saved locally:", err);
  }
@@ -1284,7 +1409,7 @@ const lastSubmitRef = useRef<{
     saveLocalCustomers([...updatedCustomers, ...updatedTrash]);
 
     const updatedTxs = transactions.filter(t => t.customerId !== customerId);
-    const updatedReminders = reminders.filter(r => r.customerId !== customerId);
+    const updatedReminders = reminders.filter(r => r.type === 'emi' || r.customerId !== customerId);
     setTransactions(updatedTxs);
     setReminders(updatedReminders);
     saveLocalTransactions(updatedTxs);
@@ -1296,12 +1421,14 @@ const lastSubmitRef = useRef<{
 
     const customerDocRef = doc(db, 'users', userId, 'customers', customerId);
     const relatedTxs = transactions.filter(t => t.customerId === customerId);
-    const relatedReminders = reminders.filter(r => r.customerId === customerId);
+    const relatedReminders = reminders.filter(r => r.type !== 'emi' && r.customerId === customerId);
 
     const batch = writeBatch(db);
     batch.delete(customerDocRef);
     relatedTxs.forEach(tx => {
       batch.delete(doc(db, 'users', userId, 'transactions', tx.id));
+      adjustMonthlySummary(batch, userId, tx, null);
+      adjustDailySummary(batch, userId, tx, null);
     });
     relatedReminders.forEach(rem => {
       batch.delete(doc(db, 'users', userId, 'reminders', rem.id));
@@ -1324,7 +1451,7 @@ const lastSubmitRef = useRef<{
     saveLocalCustomers(customers);
 
     const updatedTxs = transactions.filter(t => !idsToDelete.includes(t.customerId));
-    const updatedReminders = reminders.filter(r => !idsToDelete.includes(r.customerId));
+    const updatedReminders = reminders.filter(r => r.type === 'emi' || !idsToDelete.includes(r.customerId));
     setTransactions(updatedTxs);
     setReminders(updatedReminders);
     saveLocalTransactions(updatedTxs);
@@ -1338,12 +1465,14 @@ const lastSubmitRef = useRef<{
       for (const customerId of idsToDelete) {
         const customerDocRef = doc(db, 'users', userId, 'customers', customerId);
         const relatedTxs = transactions.filter(t => t.customerId === customerId);
-        const relatedReminders = reminders.filter(r => r.customerId === customerId);
+        const relatedReminders = reminders.filter(r => r.type !== 'emi' && r.customerId === customerId);
 
         const batch = writeBatch(db);
         batch.delete(customerDocRef);
         relatedTxs.forEach(tx => {
           batch.delete(doc(db, 'users', userId, 'transactions', tx.id));
+          adjustMonthlySummary(batch, userId, tx, null);
+          adjustDailySummary(batch, userId, tx, null);
         });
         relatedReminders.forEach(rem => {
           batch.delete(doc(db, 'users', userId, 'reminders', rem.id));
@@ -1478,6 +1607,7 @@ const lastSubmitRef = useRef<{
     });
 
     adjustMonthlySummary(batch, userId, tx, updatedTx);
+    adjustDailySummary(batch, userId, tx, updatedTx);
 
     try {
       await batch.commit();
@@ -1562,6 +1692,7 @@ const lastSubmitRef = useRef<{
     });
 
     adjustMonthlySummary(batch, userId, tx, null);
+    adjustDailySummary(batch, userId, tx, null);
     batch.update(doc(db, 'users', userId, 'customers', tx.customerId), {
       outstandingDue: increment(diff),
       updatedAt: serverTimestamp()
@@ -2057,12 +2188,30 @@ const lastSubmitRef = useRef<{
     }
 
     const goalDocRef = doc(db, 'users', userId, 'goals', customGoalId);
+    const firestoreGoal: any = {
+      id: customGoalId,
+      userId,
+      title: title.trim(),
+      targetAmount: Number(targetAmount) || 0,
+      savedAmount: 0,
+      frequency,
+      type,
+      status: 'active',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      contributions: []
+    };
+    if (installmentAmount && installmentAmount > 0) firestoreGoal.installmentAmount = Number(installmentAmount);
+    if (customerId) firestoreGoal.customerId = customerId;
+    if (customerName) firestoreGoal.customerName = customerName;
+    if (notes) firestoreGoal.notes = notes.trim();
+    if (principalAmount) firestoreGoal.principalAmount = Number(principalAmount);
+    if (interestRate !== undefined) firestoreGoal.interestRate = Number(interestRate);
+    if (interestAmount !== undefined) firestoreGoal.interestAmount = Number(interestAmount);
+    if (tenure) firestoreGoal.tenure = Number(tenure);
+
     try {
-      await setDoc(goalDocRef, {
-        ...newGoal,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
+      await setDoc(goalDocRef, firestoreGoal);
       return customGoalId;
     } catch (err) {
       console.warn("Firestore createGoal failed, saved locally:", err);
@@ -2185,6 +2334,122 @@ const lastSubmitRef = useRef<{
     }
   };
 
+  const updateGoalTitle = async (goalId: string, newTitle: string) => {
+    if (!userId || !newTitle.trim()) return;
+    const trimmed = newTitle.trim();
+    const updatedGoals = goals.map(g => 
+      g.id === goalId ? { ...g, title: trimmed, updatedAt: new Date() } : g
+    );
+    setGoals(updatedGoals);
+    saveLocalGoals(updatedGoals);
+
+    if (userId === 'local-guest-session' || isOfflineFallback) return;
+
+    const goalDocRef = doc(db, 'users', userId, 'goals', goalId);
+    try {
+      await updateDoc(goalDocRef, {
+        title: trimmed,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.warn("Firestore updateGoalTitle failed, saved locally:", err);
+    }
+  };
+
+  const editGoalContribution = async (
+    goalId: string,
+    contributionId: string,
+    newAmount: number,
+    newNote: string
+  ) => {
+    if (!userId || newAmount <= 0) return;
+    const goal = goals.find(g => g.id === goalId);
+    if (!goal) return;
+
+    const currentContribs = goal.contributions || [];
+    const targetContrib = currentContribs.find(c => (c.id && c.id === contributionId) || (!c.id && c.date === contributionId));
+    if (!targetContrib) return;
+
+    const diff = newAmount - targetContrib.amount;
+    const updatedContribs = currentContribs.map(c => 
+      ((c.id && c.id === contributionId) || (!c.id && c.date === contributionId))
+        ? { ...c, id: c.id || contributionId, amount: newAmount, note: newNote.trim() }
+        : c
+    );
+    const newSaved = Math.max(0, (goal.savedAmount || 0) + diff);
+    const isCompleted = newSaved >= (Number(goal.targetAmount) || 0);
+    const newStatus = isCompleted ? ('completed' as const) : (goal.status === 'completed' ? 'active' : goal.status);
+
+    const updatedGoal: SavingGoal = {
+      ...goal,
+      savedAmount: newSaved,
+      status: newStatus,
+      contributions: updatedContribs,
+      updatedAt: new Date()
+    };
+
+    const updatedGoals = goals.map(g => (g.id === goalId ? updatedGoal : g));
+    setGoals(updatedGoals);
+    saveLocalGoals(updatedGoals);
+
+    if (userId === 'local-guest-session' || isOfflineFallback) return;
+
+    const goalDocRef = doc(db, 'users', userId, 'goals', goalId);
+    try {
+      await updateDoc(goalDocRef, {
+        savedAmount: newSaved,
+        status: newStatus,
+        contributions: updatedContribs,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.warn("Firestore editGoalContribution failed, saved locally:", err);
+    }
+  };
+
+  const deleteGoalContribution = async (goalId: string, contributionId: string) => {
+    if (!userId) return;
+    const goal = goals.find(g => g.id === goalId);
+    if (!goal) return;
+
+    const currentContribs = goal.contributions || [];
+    const targetContrib = currentContribs.find(c => (c.id && c.id === contributionId) || (!c.id && c.date === contributionId));
+    if (!targetContrib) return;
+
+    const updatedContribs = currentContribs.filter(c => 
+      !((c.id && c.id === contributionId) || (!c.id && c.date === contributionId))
+    );
+    const newSaved = Math.max(0, (goal.savedAmount || 0) - targetContrib.amount);
+    const isCompleted = newSaved >= (Number(goal.targetAmount) || 0);
+    const newStatus = isCompleted ? ('completed' as const) : (goal.status === 'completed' ? 'active' : goal.status);
+
+    const updatedGoal: SavingGoal = {
+      ...goal,
+      savedAmount: newSaved,
+      status: newStatus,
+      contributions: updatedContribs,
+      updatedAt: new Date()
+    };
+
+    const updatedGoals = goals.map(g => (g.id === goalId ? updatedGoal : g));
+    setGoals(updatedGoals);
+    saveLocalGoals(updatedGoals);
+
+    if (userId === 'local-guest-session' || isOfflineFallback) return;
+
+    const goalDocRef = doc(db, 'users', userId, 'goals', goalId);
+    try {
+      await updateDoc(goalDocRef, {
+        savedAmount: newSaved,
+        status: newStatus,
+        contributions: updatedContribs,
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.warn("Firestore deleteGoalContribution failed, saved locally:", err);
+    }
+  };
+
   const exportBackup = async () => {
     if (!userId) return null;
     let allTxs: Transaction[] = [];
@@ -2235,7 +2500,7 @@ const lastSubmitRef = useRef<{
     customerTransactions: customerTransactions.filter(t => customers.some(c => c.id === t.customerId)),
     dailyTransactions: dailyTransactions.filter(t => customers.some(c => c.id === t.customerId)),
     todayTransactions: todayTransactions.filter(t => customers.some(c => c.id === t.customerId)),
-    reminders: reminders.filter(r => customers.some(c => c.id === r.customerId)),
+    reminders: reminders.filter(r => r.type === 'emi' || Boolean(r.goalId) || customers.some(c => c.id === r.customerId)),
     settings,
     loading,
     isOfflineFallback,
@@ -2266,6 +2531,9 @@ const lastSubmitRef = useRef<{
     addGoalContribution,
     deleteGoal,
     updateGoalStatus,
+    updateGoalTitle,
+    editGoalContribution,
+    deleteGoalContribution,
     exportBackup,
     rebuildMonthlySummaries: () => rebuildMonthlySummaries(userId)
   };

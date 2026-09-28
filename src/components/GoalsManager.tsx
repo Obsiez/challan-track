@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Customer, SavingGoal, GoalContribution, Reminder } from '../types';
 import { 
-  Target, Calendar, Plus, Users, Trash2, CheckCircle2, ChevronRight, ChevronDown, CreditCard, X, AlertCircle, ReceiptText, AlertTriangle, PiggyBank, CalendarClock, RotateCcw, Goal, Percent, Calculator, Bell, BellRing, Info 
+  Target, Calendar, Plus, Users, Trash2, CheckCircle2, ChevronRight, ChevronDown, CreditCard, X, AlertCircle, ReceiptText, AlertTriangle, PiggyBank, CalendarClock, RotateCcw, Goal, Percent, Calculator, Bell, BellRing, Info, Pencil, Check, User 
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, useDragControls } from 'motion/react';
 import { triggerHaptic } from '../lib/haptics';
 import { translations, Language, formatNumber, formatIndianNumberString } from '../lib/translations';
 import { toast } from 'sonner';
@@ -34,6 +34,9 @@ interface GoalsManagerProps {
   ) => Promise<SavingGoal | null | void>;
   deleteGoal: (goalId: string) => Promise<void>;
   updateGoalStatus: (goalId: string, status: 'active' | 'completed' | 'cancelled') => Promise<void>;
+  updateGoalTitle?: (goalId: string, newTitle: string) => Promise<void>;
+  editGoalContribution?: (goalId: string, contributionId: string, newAmount: number, newNote: string) => Promise<void>;
+  deleteGoalContribution?: (goalId: string, contributionId: string) => Promise<void>;
   reminders?: Reminder[];
   addReminder?: (
     customerId: string, 
@@ -51,6 +54,15 @@ interface GoalsManagerProps {
   lang: Language;
 }
 
+// Helper to parse numeric string safely supporting Bengali numerals
+const parseAmount = (val: string): number => {
+  if (!val) return 0;
+  const ascii = val.replace(/[০-৯]/g, d => String('০১২৩৪৫৬৭৮৯'.indexOf(d)));
+  const clean = ascii.replace(/[^0-9.]/g, '');
+  const num = parseFloat(clean);
+  return isNaN(num) ? 0 : num;
+};
+
 export default function GoalsManager({
   goals,
   goalsSynced,
@@ -59,12 +71,16 @@ export default function GoalsManager({
   addGoalContribution,
   deleteGoal,
   updateGoalStatus,
+  updateGoalTitle,
+  editGoalContribution,
+  deleteGoalContribution,
   reminders = [],
   addReminder,
   deleteReminder,
   lang
 }: GoalsManagerProps) {
   const t = translations[lang];
+  const dragControls = useDragControls();
 
   // Tab filter: 'active' or 'history'
   const [filterTab, setFilterTab] = useState<'active' | 'history'>('active');
@@ -104,6 +120,263 @@ export default function GoalsManager({
   const [emiDueDay, setEmiDueDay] = useState<number>(5);
   const [emiAlertTime, setEmiAlertTime] = useState<string>('09:00');
   const [isSavingEmiReminder, setIsSavingEmiReminder] = useState(false);
+
+  // Goal Title Editing (Popup Modal)
+  const [isEditingGoalTitle, setIsEditingGoalTitle] = useState(false);
+  const [editedGoalTitle, setEditedGoalTitle] = useState('');
+  const [isSavingGoalTitle, setIsSavingGoalTitle] = useState(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // Contribution Ledger Edit / Delete
+  const [editingContribution, setEditingContribution] = useState<GoalContribution | null>(null);
+  const [editContribAmount, setEditContribAmount] = useState('');
+  const [editContribNote, setEditContribNote] = useState('');
+  const [isSavingEditContrib, setIsSavingEditContrib] = useState(false);
+
+  const [deletingContribution, setDeletingContribution] = useState<GoalContribution | null>(null);
+  const [isDeletingContrib, setIsDeletingContrib] = useState(false);
+
+  const pushModalHistory = (name: string) => {
+    window.history.pushState({ ...window.history.state, goalModal: name }, '');
+  };
+
+  const popModalHistory = (expectedModal?: string) => {
+    if (window.history.state?.goalModal && (!expectedModal || window.history.state?.goalModal === expectedModal)) {
+      window.history.back();
+    }
+  };
+
+  const openGoalDetail = (goal: SavingGoal) => {
+    triggerHaptic('single');
+    setSelectedGoal(goal);
+    pushModalHistory('goalDetail');
+  };
+
+  const closeGoalDetail = () => {
+    setIsEditingGoalTitle(false);
+    setEditingContribution(null);
+    setDeletingContribution(null);
+    setEmiReminderGoal(null);
+    setShowCancelConfirm(false);
+    setShowDeleteConfirm(false);
+    setShowReactivateConfirm(false);
+    setSelectedGoal(null);
+    if (window.history.state?.goalModal) {
+      window.history.back();
+    }
+  };
+
+  const openRenameGoal = () => {
+    if (!selectedGoal) return;
+    triggerHaptic('single');
+    setEditedGoalTitle(selectedGoal.title);
+    setIsEditingGoalTitle(true);
+    pushModalHistory('renameGoal');
+  };
+
+  const closeRenameGoal = () => {
+    setIsEditingGoalTitle(false);
+    popModalHistory('renameGoal');
+  };
+
+  const openCreateGoalModal = () => {
+    triggerHaptic('single');
+    setShowCreateModal(true);
+    pushModalHistory('createGoal');
+  };
+
+  const closeCreateGoalModal = () => {
+    setShowCreateModal(false);
+    popModalHistory('createGoal');
+  };
+
+  const openEditContributionModal = (c: GoalContribution) => {
+    triggerHaptic('single');
+    setEditingContribution(c);
+    setEditContribAmount(c.amount.toString());
+    setEditContribNote(c.note || '');
+    pushModalHistory('editContrib');
+  };
+
+  const closeEditContributionModal = () => {
+    setEditingContribution(null);
+    popModalHistory('editContrib');
+  };
+
+  const openDeleteContributionModal = (c: GoalContribution) => {
+    triggerHaptic('single');
+    setDeletingContribution(c);
+    pushModalHistory('deleteContrib');
+  };
+
+  const closeDeleteContributionModal = () => {
+    setDeletingContribution(null);
+    popModalHistory('deleteContrib');
+  };
+
+  const openEmiReminderModal = (goal: SavingGoal) => {
+    triggerHaptic('single');
+    setEmiReminderGoal(goal);
+    const existing = reminders.find(r => r.goalId === goal.id && r.active);
+    if (existing?.emiDayOfMonth) {
+      setEmiDueDay(existing.emiDayOfMonth);
+    }
+    if (existing?.dueDate) {
+      const d = new Date(existing.dueDate);
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      setEmiAlertTime(`${hh}:${mm}`);
+    }
+    pushModalHistory('emiReminder');
+  };
+
+  const closeEmiReminderModal = () => {
+    setEmiReminderGoal(null);
+    popModalHistory('emiReminder');
+  };
+
+  const openDeleteGoalConfirm = () => {
+    triggerHaptic('single');
+    setShowDeleteConfirm(true);
+    pushModalHistory('deleteGoalConfirm');
+  };
+
+  const closeDeleteGoalConfirm = () => {
+    setShowDeleteConfirm(false);
+    popModalHistory('deleteGoalConfirm');
+  };
+
+  const openCancelGoalConfirm = () => {
+    triggerHaptic('single');
+    setShowCancelConfirm(true);
+    pushModalHistory('cancelGoalConfirm');
+  };
+
+  const closeCancelGoalConfirm = () => {
+    setShowCancelConfirm(false);
+    popModalHistory('cancelGoalConfirm');
+  };
+
+  const openReactivateGoalConfirm = () => {
+    triggerHaptic('single');
+    setShowReactivateConfirm(true);
+    pushModalHistory('reactivateGoalConfirm');
+  };
+
+  const closeReactivateGoalConfirm = () => {
+    setShowReactivateConfirm(false);
+    popModalHistory('reactivateGoalConfirm');
+  };
+
+  // Back Navigation / PopState Listener
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const currentModalInHistory = e.state?.goalModal;
+
+      // Case 1: Popped back to base (no goalModal in state)
+      if (!currentModalInHistory) {
+        setIsEditingGoalTitle(false);
+        setEditingContribution(null);
+        setDeletingContribution(null);
+        setEmiReminderGoal(null);
+        setShowCancelConfirm(false);
+        setShowDeleteConfirm(false);
+        setShowReactivateConfirm(false);
+        setSelectedGoal(null);
+        setShowCreateModal(false);
+        return;
+      }
+
+      // Case 2: Popped back to goalDetail (from renameGoal, editContrib, deleteContrib, etc.)
+      if (currentModalInHistory === 'goalDetail') {
+        setIsEditingGoalTitle(false);
+        setEditingContribution(null);
+        setDeletingContribution(null);
+        setEmiReminderGoal(null);
+        setShowCancelConfirm(false);
+        setShowDeleteConfirm(false);
+        setShowReactivateConfirm(false);
+        // selectedGoal remains open!
+        return;
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Sync selectedGoal when goals list is updated
+  useEffect(() => {
+    if (selectedGoal) {
+      const fresh = goals.find(g => g.id === selectedGoal.id);
+      if (fresh) {
+        setSelectedGoal(fresh);
+      }
+    }
+  }, [goals]);
+
+  const handleSaveGoalTitle = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!selectedGoal || !updateGoalTitle) return;
+    const trimmed = editedGoalTitle.trim();
+    if (!trimmed) {
+      toast.error(lang === 'bn' ? 'লক্ষ্যের শিরোনাম ফাঁকা রাখা যাবে না' : 'Goal title cannot be empty');
+      return;
+    }
+    setIsSavingGoalTitle(true);
+    try {
+      await updateGoalTitle(selectedGoal.id, trimmed);
+      setSelectedGoal(prev => prev ? { ...prev, title: trimmed } : null);
+      closeRenameGoal();
+      triggerHaptic('single');
+      toast.success(lang === 'bn' ? 'লক্ষ্যের শিরোনাম আপডেট করা হয়েছে' : 'Goal title updated successfully');
+    } catch (err) {
+      console.error(err);
+      toast.error(lang === 'bn' ? 'শিরোনাম আপডেট করতে ব্যর্থ হয়েছে' : 'Failed to update goal title');
+    } finally {
+      setIsSavingGoalTitle(false);
+    }
+  };
+
+  const handleSaveEditContribution = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGoal || !editingContribution || !editGoalContribution) return;
+    const parsedAmount = parseAmount(editContribAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      toast.error(lang === 'bn' ? 'সঠিক পরিমাণ লিখুন' : 'Please enter a valid amount');
+      return;
+    }
+    setIsSavingEditContrib(true);
+    try {
+      const contribId = editingContribution.id || editingContribution.date;
+      await editGoalContribution(selectedGoal.id, contribId, parsedAmount, editContribNote);
+      closeEditContributionModal();
+      triggerHaptic('single');
+      toast.success(lang === 'bn' ? 'জমার বিবরণ আপডেট করা হয়েছে' : 'Contribution updated successfully');
+    } catch (err) {
+      console.error(err);
+      toast.error(lang === 'bn' ? 'আপডেট করতে ব্যর্থ হয়েছে' : 'Failed to update contribution');
+    } finally {
+      setIsSavingEditContrib(false);
+    }
+  };
+
+  const handleConfirmDeleteContribution = async () => {
+    if (!selectedGoal || !deletingContribution || !deleteGoalContribution) return;
+    setIsDeletingContrib(true);
+    try {
+      const contribId = deletingContribution.id || deletingContribution.date;
+      await deleteGoalContribution(selectedGoal.id, contribId);
+      closeDeleteContributionModal();
+      triggerHaptic('single');
+      toast.success(lang === 'bn' ? 'জমা মুছে ফেলা হয়েছে' : 'Contribution deleted successfully');
+    } catch (err) {
+      console.error(err);
+      toast.error(lang === 'bn' ? 'মুছে ফেলতে ব্যর্থ হয়েছে' : 'Failed to delete contribution');
+    } finally {
+      setIsDeletingContrib(false);
+    }
+  };
 
   const handleSaveEmiReminder = async () => {
     if (!emiReminderGoal || !addReminder) return;
@@ -159,7 +432,7 @@ export default function GoalsManager({
           ? `মাসিক কিস্তির অ্যালার্ট সক্রিয় করা হয়েছে (প্রতি মাসের ${formatNumber(day, 'bn')} তারিখ)` 
           : `EMI reminder set for day ${day} of every month!`
       );
-      setEmiReminderGoal(null);
+      closeEmiReminderModal();
     } catch (err) {
       toast.error(lang === 'bn' ? 'রিমাইন্ডার সংরক্ষণ করা যায়নি।' : 'Failed to save reminder.');
     } finally {
@@ -175,12 +448,12 @@ export default function GoalsManager({
       triggerHaptic('single');
       toast.info(lang === 'bn' ? 'কিস্তির অ্যালার্ট বন্ধ করা হয়েছে' : 'EMI reminder turned off');
     }
-    setEmiReminderGoal(null);
+    closeEmiReminderModal();
   };
 
   // 1. Disable background scrolling when ANY modal is active
   useEffect(() => {
-    if (showCreateModal || selectedGoal || showCancelConfirm || showDeleteConfirm || showReactivateConfirm || emiReminderGoal) {
+    if (showCreateModal || selectedGoal || showCancelConfirm || showDeleteConfirm || showReactivateConfirm || emiReminderGoal || editingContribution || deletingContribution || isEditingGoalTitle) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
@@ -188,7 +461,7 @@ export default function GoalsManager({
     return () => {
       document.body.style.overflow = '';
     };
-  }, [showCreateModal, selectedGoal, showCancelConfirm, showDeleteConfirm, showReactivateConfirm, emiReminderGoal]);
+  }, [showCreateModal, selectedGoal, showCancelConfirm, showDeleteConfirm, showReactivateConfirm, emiReminderGoal, editingContribution, deletingContribution, isEditingGoalTitle]);
 
   useEffect(() => {
     setIsEmiBreakdownOpen(false);
@@ -198,15 +471,6 @@ export default function GoalsManager({
   const activeGoals = goals.filter(g => g.status === 'active');
   const historyGoals = goals.filter(g => g.status !== 'active');
   const visibleGoals = filterTab === 'active' ? activeGoals : historyGoals;
-
-  // Helper to parse numeric string safely supporting Bengali numerals
-  const parseAmount = (val: string): number => {
-    if (!val) return 0;
-    const ascii = val.replace(/[০-৯]/g, d => String('০১২৩৪৫৬৭৮৯'.indexOf(d)));
-    const clean = ascii.replace(/[^0-9.]/g, '');
-    const num = parseFloat(clean);
-    return isNaN(num) ? 0 : num;
-  };
 
   const handleAmountChange = (val: string, setter: (s: string) => void) => {
     const ascii = val.replace(/[০-৯]/g, d => String('০১২৩৪৫৬৭৮৯'.indexOf(d)));
@@ -393,7 +657,7 @@ export default function GoalsManager({
         setInterestRate('10');
         setSelectedCustomerId('');
         setNotes('');
-        setShowCreateModal(false);
+        closeCreateGoalModal();
         toast.success(lang === 'bn' ? 'নতুন লক্ষ্য সফলভাবে তৈরি হয়েছে' : 'Goal created successfully');
       }
     } catch (err) {
@@ -456,8 +720,7 @@ export default function GoalsManager({
   };
 
   const openDeleteConfirmModal = () => {
-    triggerHaptic('single');
-    setShowDeleteConfirm(true);
+    openDeleteGoalConfirm();
   };
 
   return (
@@ -473,7 +736,7 @@ export default function GoalsManager({
         </h2>
 
         <button
-          onClick={() => { triggerHaptic('single'); setShowCreateModal(true); }}
+          onClick={openCreateGoalModal}
           className="px-5 py-3 bg-emerald-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-md shadow-emerald-100 dark:shadow-none hover:bg-emerald-700 transition-colors cursor-pointer text-base shrink-0"
           id="create_goal_btn"
         >
@@ -522,7 +785,7 @@ export default function GoalsManager({
             return (
               <div 
                 key={goal.id}
-                onClick={() => { triggerHaptic('single'); setSelectedGoal(goal); }}
+                onClick={() => openGoalDetail(goal)}
                 className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-emerald-500/50 dark:hover:border-emerald-500/30 p-5 rounded-3xl shadow-sm hover:shadow-md transition-all cursor-pointer relative group flex flex-col justify-between min-h-[180px]"
               >
                 <div>
@@ -545,12 +808,7 @@ export default function GoalsManager({
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            triggerHaptic('single');
-                            setEmiReminderGoal(goal);
-                            const existing = reminders.find(r => r.goalId === goal.id && r.active);
-                            if (existing?.emiDayOfMonth) {
-                              setEmiDueDay(existing.emiDayOfMonth);
-                            }
+                            openEmiReminderModal(goal);
                           }}
                           className={`p-1.5 rounded-full transition-colors cursor-pointer ${
                             reminders.some(r => r.goalId === goal.id && r.active)
@@ -564,7 +822,7 @@ export default function GoalsManager({
                           }
                         >
                           {reminders.some(r => r.goalId === goal.id && r.active) ? (
-                            <BellRing className="w-4 h-4 text-amber-500 animate-pulse" />
+                            <BellRing className="w-4 h-4 text-amber-500" />
                           ) : (
                             <Bell className="w-4 h-4" />
                           )}
@@ -647,7 +905,7 @@ export default function GoalsManager({
       {/* ── CREATE GOAL MODAL ── */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-select overflow-y-auto hide-scrollbar">
-          <div className="absolute inset-0" onClick={() => setShowCreateModal(false)} />
+          <div className="absolute inset-0" onClick={closeCreateGoalModal} />
           
           <div className="bg-white dark:bg-zinc-900 w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col animate-slide-up relative z-10">
             {/* Header (No icon - matches Add New Ledger Entry) */}
@@ -656,7 +914,7 @@ export default function GoalsManager({
                 {t.createGoal}
               </h3>
               <button 
-                onClick={() => setShowCreateModal(false)}
+                onClick={closeCreateGoalModal}
                 className="p-3 bg-zinc-100 touch-target-height hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-full text-zinc-500 dark:text-zinc-400 transition-colors cursor-pointer"
                 aria-label="Close"
                 id="close_goal_modal_btn"
@@ -1066,113 +1324,164 @@ export default function GoalsManager({
 
       {/* ── GOAL DETAIL VIEW MODAL ── */}
       {selectedGoal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-select overflow-hidden">
-          <div className="absolute inset-0" onClick={() => setSelectedGoal(null)} />
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-select"
+        >
+          <div className="absolute inset-0" onClick={closeGoalDetail} />
 
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
+            drag={isEditingGoalTitle ? false : "y"}
+            dragControls={dragControls}
+            dragListener={false}
+            dragConstraints={{ top: 0, bottom: 0 }}
+            dragElastic={{ top: 0, bottom: 0.8 }}
+            onDragEnd={(_e, info) => {
+              if (info.offset.y > 70 || info.velocity.y > 300) {
+                triggerHaptic('single');
+                closeGoalDetail();
+              }
+            }}
+            initial={false}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            className="bg-white dark:bg-zinc-900 w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col relative z-10"
+            className="bg-white dark:bg-zinc-900 w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col relative z-10 touch-pan-y"
           >
             
-            {/* Header (Consistent distinct icons) */}
-            <div className="p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
-              <div className="min-w-0 pr-2">
-                <span className={`px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider inline-flex items-center gap-1 ${
-                  selectedGoal.type === 'savings' 
-                    ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400' 
-                    : 'bg-rose-50 text-[#e0385e] dark:bg-rose-950/20 dark:text-rose-400'
-                }`}>
-                  {selectedGoal.type === 'savings' ? (
-                    <PiggyBank className="w-3.5 h-3.5" />
-                  ) : (
-                    <CalendarClock className="w-3.5 h-3.5" />
-                  )}
-                  {selectedGoal.type === 'savings' ? t.savings : t.deposit}
-                </span>
-                <h3 className="text-xl font-bold text-zinc-900 dark:text-white truncate leading-snug mt-1.5">
-                  {selectedGoal.title}
-                </h3>
+            {/* Header (Goal Title on Left & Circular Action Buttons on Right) */}
+            <div className="px-5 pt-2.5 pb-4 sm:px-6 sm:pt-3 sm:pb-4.5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/60 shrink-0">
+              {/* Collapsible handle bar (drag/slide down to close) */}
+              <div 
+                className="w-full flex justify-center py-2 -mt-1 cursor-grab active:cursor-grabbing touch-none select-none"
+                onPointerDown={(e) => {
+                  dragControls.start(e);
+                }}
+              >
+                <div className="w-12 h-1.5 bg-zinc-300 dark:bg-zinc-700 rounded-full hover:bg-zinc-400 dark:hover:bg-zinc-600 transition-colors" />
               </div>
-              
-              <div className="flex items-center gap-1.5 shrink-0">
-                {selectedGoal.status === 'active' && (
+
+              <div className="flex items-center justify-between gap-3 mt-1">
+                <div className="min-w-0 flex-1 flex items-center">
+                  {/* Goal Title Button - Tap to Open Rename Popup */}
                   <button
                     type="button"
-                    onClick={() => {
-                      triggerHaptic('single');
-                      setEmiReminderGoal(selectedGoal);
-                      const existing = reminders.find(r => r.goalId === selectedGoal.id && r.active);
-                      if (existing?.emiDayOfMonth) {
-                        setEmiDueDay(existing.emiDayOfMonth);
-                      }
+                    onClick={(e) => {
+                      e.currentTarget.blur();
+                      openRenameGoal();
                     }}
-                    className={`p-3 rounded-full transition-colors cursor-pointer ${
-                      reminders.some(r => r.goalId === selectedGoal.id && r.active)
-                        ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
-                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-550 dark:text-zinc-400 hover:text-amber-500'
-                    }`}
-                    title={lang === 'bn' ? 'কিস্তির নোটিফিকেশন রিমাইন্ডার' : 'EMI Notification Reminder'}
+                    className="text-left min-w-0 flex-1 group cursor-pointer focus:outline-none"
+                    title={lang === 'bn' ? 'শিরোনাম পরিবর্তন করতে ট্যাপ করুন' : 'Tap to rename goal'}
                   >
-                    {reminders.some(r => r.goalId === selectedGoal.id && r.active) ? (
-                      <BellRing className="w-5 h-5 text-amber-500 animate-pulse" />
-                    ) : (
-                      <Bell className="w-5 h-5" />
-                    )}
+                    <h3 className="text-lg sm:text-xl font-black text-zinc-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors truncate">
+                      {selectedGoal.title}
+                    </h3>
                   </button>
-                )}
-                <button
-                  onClick={openDeleteConfirmModal}
-                  className="p-3 bg-zinc-100 hover:bg-rose-50 dark:bg-zinc-800 dark:hover:bg-rose-950/30 rounded-full text-zinc-550 hover:text-[#e0385e] dark:text-zinc-400 transition-colors cursor-pointer"
-                  title={lang === 'bn' ? 'মুছে ফেলুন' : 'Delete Goal'}
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
-                <button 
-                  onClick={() => setSelectedGoal(null)}
-                  className="p-3 bg-zinc-100 touch-target-height hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-full text-zinc-500 dark:text-zinc-400 transition-colors cursor-pointer"
-                  aria-label="Close"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                </div>
+                
+                <div className="flex items-center gap-2 shrink-0">
+                  {selectedGoal.status === 'active' && (
+                    <button
+                      type="button"
+                      onClick={() => openEmiReminderModal(selectedGoal)}
+                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                        reminders.some(r => r.goalId === selectedGoal.id && r.active)
+                          ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-550 dark:text-zinc-400 hover:text-amber-500'
+                      }`}
+                      title={lang === 'bn' ? 'কিস্তির নোটিফিকেশন রিমাইন্ডার' : 'EMI Notification Reminder'}
+                    >
+                      {reminders.some(r => r.goalId === selectedGoal.id && r.active) ? (
+                        <BellRing className="w-4.5 h-4.5 text-amber-500" />
+                      ) : (
+                        <Bell className="w-4.5 h-4.5" />
+                      )}
+                    </button>
+                  )}
+                  <button
+                    onClick={openDeleteGoalConfirm}
+                    className="w-10 h-10 bg-zinc-100 hover:bg-rose-50 dark:bg-zinc-800 dark:hover:bg-rose-950/30 rounded-full text-zinc-550 hover:text-[#e0385e] dark:text-zinc-400 flex items-center justify-center transition-colors cursor-pointer"
+                    title={lang === 'bn' ? 'মুছে ফেলুন' : 'Delete Goal'}
+                  >
+                    <Trash2 className="w-4.5 h-4.5" />
+                  </button>
+                  <button 
+                    onClick={closeGoalDetail}
+                    className="w-10 h-10 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-full text-zinc-500 dark:text-zinc-400 flex items-center justify-center transition-colors cursor-pointer"
+                    aria-label="Close"
+                  >
+                    <X className="w-4.5 h-4.5" />
+                  </button>
+                </div>
               </div>
             </div>
 
             {/* Scrollable Modal Content */}
-            <div className="flex-1 overflow-y-auto hide-scrollbar p-5 space-y-6">
+            <div className="flex-1 overflow-y-auto hide-scrollbar p-4 sm:p-5 pb-16 sm:pb-8 space-y-3.5 sm:space-y-4">
               
-              {/* Goal Statistics Info Grid */}
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="p-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-850 rounded-2xl">
-                  <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">{t.targetAmount}</span>
-                  <span className="text-base font-black text-zinc-800 dark:text-white mt-1 block">৳{formatNumber(selectedGoal.targetAmount, lang)}</span>
+              {/* Unified Financial Progress & Overview Card */}
+              <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-850 rounded-2xl p-3.5 sm:p-4 space-y-3 shadow-xs">
+                {/* 3 Main Numbers */}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="p-2 sm:p-2.5 bg-white dark:bg-zinc-900 border border-zinc-150 dark:border-zinc-800/70 rounded-xl">
+                    <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">{t.targetAmount}</span>
+                    <span className="text-sm sm:text-base font-black text-zinc-800 dark:text-white mt-0.5 block truncate">৳{formatNumber(selectedGoal.targetAmount, lang)}</span>
+                  </div>
+                  <div className="p-2 sm:p-2.5 bg-white dark:bg-zinc-900 border border-zinc-150 dark:border-zinc-800/70 rounded-xl">
+                    <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">{t.savedAmount}</span>
+                    <span className="text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block truncate">৳{formatNumber(selectedGoal.savedAmount || 0, lang)}</span>
+                  </div>
+                  <div className="p-2 sm:p-2.5 bg-white dark:bg-zinc-900 border border-zinc-150 dark:border-zinc-800/70 rounded-xl">
+                    <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">{t.remaining}</span>
+                    <span className="text-sm sm:text-base font-black text-[#e0385e] mt-0.5 block truncate">৳{formatNumber(Math.max(0, selectedGoal.targetAmount - (selectedGoal.savedAmount || 0)), lang)}</span>
+                  </div>
                 </div>
-                <div className="p-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-850 rounded-2xl">
-                  <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">{t.savedAmount}</span>
-                  <span className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-1 block">৳{formatNumber(selectedGoal.savedAmount || 0, lang)}</span>
-                </div>
-                <div className="p-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-850 rounded-2xl">
-                  <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block">{t.remaining}</span>
-                  <span className="text-base font-black text-[#e0385e] mt-1 block">৳{formatNumber(Math.max(0, selectedGoal.targetAmount - (selectedGoal.savedAmount || 0)), lang)}</span>
-                </div>
-              </div>
 
-              {/* Visual Progress Bar */}
-              <div className="space-y-2">
-                <div className="w-full h-3 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-                  <div 
-                    className={`h-full rounded-full transition-all duration-700 ${
-                      selectedGoal.status === 'completed' 
-                        ? 'bg-emerald-500' 
-                        : selectedGoal.type === 'savings' ? 'bg-emerald-500/80' : 'bg-[#e0385e]'
-                    }`}
-                    style={{ width: `${Math.min(100, Math.round(((selectedGoal.savedAmount || 0) / (selectedGoal.targetAmount || 1)) * 100))}%` }}
-                  />
+                {/* Progress Bar & Status */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-extrabold">
+                    <div className="flex items-center gap-2">
+                      <span className="text-zinc-500 dark:text-zinc-400 font-bold text-[11px] sm:text-xs">
+                        {Math.min(100, Math.round(((selectedGoal.savedAmount || 0) / (selectedGoal.targetAmount || 1)) * 100))}% {lang === 'bn' ? 'সম্পন্ন' : 'achieved'}
+                      </span>
+                      {selectedGoal.status !== 'active' && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-zinc-200 dark:bg-zinc-800 text-zinc-650 dark:text-zinc-400">
+                          {selectedGoal.status === 'completed' ? (lang === 'bn' ? 'সম্পন্ন' : 'Completed') : (lang === 'bn' ? 'বাতিল' : 'Cancelled')}
+                        </span>
+                      )}
+                    </div>
+                    {selectedGoal.installmentAmount && selectedGoal.installmentAmount > 0 && (
+                      <span className="text-zinc-500 dark:text-zinc-400 text-[11px] font-bold">
+                        ৳{formatNumber(selectedGoal.installmentAmount, lang)} / {selectedGoal.frequency === 'daily' ? t.daily : selectedGoal.frequency === 'weekly' ? t.weekly : selectedGoal.frequency === 'monthly' ? t.monthly : t.flexible}
+                      </span>
+                    )}
+                  </div>
+                  <div className="w-full h-2.5 bg-zinc-200/80 dark:bg-zinc-800 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-700 ${
+                        selectedGoal.status === 'completed' 
+                          ? 'bg-emerald-500' 
+                          : selectedGoal.type === 'savings' ? 'bg-emerald-500' : 'bg-[#e0385e]'
+                      }`}
+                      style={{ width: `${Math.min(100, Math.round(((selectedGoal.savedAmount || 0) / (selectedGoal.targetAmount || 1)) * 100))}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="text-right text-xs font-black text-zinc-400">
-                  {Math.min(100, Math.round(((selectedGoal.savedAmount || 0) / (selectedGoal.targetAmount || 1)) * 100))}% {lang === 'bn' ? 'সম্পন্ন হয়েছে' : 'Achieved'}
-                </div>
+
+                {/* Customer & Notes subtitle if present */}
+                {(selectedGoal.customerName || selectedGoalEmiDetails?.cleanNotes || selectedGoal.notes) && (
+                  <div className="flex items-center justify-between text-xs pt-2 border-t border-zinc-200/60 dark:border-zinc-850 text-zinc-500 dark:text-zinc-400 flex-wrap gap-2">
+                    {selectedGoal.customerName && (
+                      <span className="font-bold flex items-center gap-1.5 text-xs">
+                        <User className="w-3.5 h-3.5 text-zinc-400" />
+                        <span className="text-zinc-800 dark:text-zinc-200">{selectedGoal.customerName}</span>
+                      </span>
+                    )}
+                    {(selectedGoalEmiDetails?.cleanNotes || selectedGoal.notes) && (
+                      <span className="text-xs text-zinc-600 dark:text-zinc-400 italic">
+                        <span className="font-bold not-italic text-zinc-400 mr-1">{t.notes}:</span>
+                        {selectedGoalEmiDetails?.cleanNotes || selectedGoal.notes}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Dedicated EMI & Loan Details Card - Compact & Collapsible by default */}
@@ -1256,44 +1565,16 @@ export default function GoalsManager({
                 </div>
               )}
 
-              {/* Installment Info & Client Linked */}
-              <div className="bg-zinc-50 dark:bg-zinc-950/40 p-4 rounded-2xl border border-zinc-100 dark:border-zinc-850 text-sm font-semibold space-y-2">
-                {selectedGoal.customerName && (
-                  <div className="flex justify-between items-center text-zinc-500 dark:text-zinc-400">
-                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{lang === 'bn' ? 'সংযুক্ত গ্রাহক' : 'Linked Customer'}</span>
-                    <span className="font-extrabold text-zinc-800 dark:text-zinc-200">{selectedGoal.customerName}</span>
-                  </div>
-                )}
-                <div className="flex justify-between items-center text-zinc-500 dark:text-zinc-400">
-                  <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{lang === 'bn' ? 'কিস্তি শিডিউল' : 'Installment Details'}</span>
-                  <span className="font-extrabold text-zinc-800 dark:text-zinc-200">
-                    {selectedGoal.installmentAmount ? `৳${formatNumber(selectedGoal.installmentAmount, lang)} / ` : ''}
-                    {selectedGoal.frequency === 'daily' && t.daily}
-                    {selectedGoal.frequency === 'weekly' && t.weekly}
-                    {selectedGoal.frequency === 'monthly' && t.monthly}
-                    {selectedGoal.frequency === 'flexible' && t.flexible}
-                  </span>
-                </div>
-                {(selectedGoalEmiDetails?.cleanNotes || (!selectedGoalEmiDetails && selectedGoal.notes)) && (
-                  <div className="flex justify-between items-center text-zinc-500 dark:text-zinc-400 border-t border-zinc-200/50 dark:border-zinc-800/50 pt-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">{t.notes}</span>
-                    <span className="font-medium text-zinc-700 dark:text-zinc-300 text-xs">
-                      {selectedGoalEmiDetails?.cleanNotes || selectedGoal.notes}
-                    </span>
-                  </div>
-                )}
-              </div>
-
               {/* INSTALLMENT FORM SECTION */}
               {selectedGoal.status === 'active' && (
-                <div className="border-t border-zinc-100 dark:border-zinc-800 pt-4">
+                <div className="pt-1">
                   {!showInstallmentForm ? (
                     <button
                       onClick={() => { triggerHaptic('single'); setShowInstallmentForm(true); }}
-                      className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer text-sm"
+                      className="w-full py-3.5 sm:py-4 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-extrabold rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer text-sm sm:text-base"
                     >
-                      <Plus className="w-5 h-5" />
-                      {t.addInstallment}
+                      <Plus className="w-5 h-5 stroke-[2.5]" />
+                      <span>{t.addInstallment}</span>
                     </button>
                   ) : (
                     <form onSubmit={handleAddContribution} className="space-y-4 bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-850 animate-reveal">
@@ -1302,7 +1583,7 @@ export default function GoalsManager({
                         <button 
                           type="button"
                           onClick={() => setShowInstallmentForm(false)}
-                          className="p-1 text-zinc-400 hover:text-rose-500 cursor-pointer"
+                          className="p-1.5 text-zinc-400 hover:text-rose-500 rounded-lg cursor-pointer"
                         >
                           <X className="w-4 h-4" />
                         </button>
@@ -1321,7 +1602,7 @@ export default function GoalsManager({
                             placeholder="0"
                             value={installmentInput}
                             onChange={(e) => handleAmountChange(e.target.value, setInstallmentInput)}
-                            className="w-full pl-9 pr-4 py-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl font-black text-xl text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                            className="w-full pl-9 pr-4 py-3 bg-white dark:bg-zinc-900 border-2 border-zinc-300 dark:border-zinc-700 focus:border-emerald-500 dark:focus:border-emerald-500 rounded-xl font-black text-xl text-zinc-900 dark:text-white focus:outline-none transition-all"
                           />
                         </div>
 
@@ -1339,8 +1620,8 @@ export default function GoalsManager({
                           </button>
                         )}
 
-                        {/* Quick chips */}
-                        <div className="flex flex-wrap gap-1.5 pt-1">
+                        {/* Quick chips (comfortably sized for thumb tapping) */}
+                        <div className="flex flex-wrap gap-2 pt-1.5">
                           {[500, 1000, 2000, 5000].map(val => (
                             <button
                               key={val}
@@ -1350,7 +1631,7 @@ export default function GoalsManager({
                                 const cur = parseAmount(installmentInput);
                                 setInstallmentInput(formatIndianNumberString(String(cur + val)));
                               }}
-                              className="px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-lg transition-all text-2xs cursor-pointer"
+                              className="px-3.5 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 font-extrabold rounded-xl transition-all text-xs cursor-pointer"
                             >
                               +{formatNumber(val, lang)}
                             </button>
@@ -1361,7 +1642,7 @@ export default function GoalsManager({
                               triggerHaptic('tick');
                               setInstallmentInput('');
                             }}
-                            className="px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/20 text-[#e0385e] font-bold rounded-lg transition-all text-2xs cursor-pointer"
+                            className="px-3.5 py-2 bg-rose-50 dark:bg-rose-950/20 text-[#e0385e] font-extrabold rounded-xl transition-all text-xs cursor-pointer"
                           >
                             {lang === 'bn' ? 'মুছুন' : 'Clear'}
                           </button>
@@ -1375,7 +1656,7 @@ export default function GoalsManager({
                           placeholder={lang === 'bn' ? 'যেমন: ১ম কিস্তি, নগদ জমা' : 'e.g. 1st installment, cash deposit'}
                           value={installmentNote}
                           onChange={(e) => setInstallmentNote(e.target.value)}
-                          className="w-full px-4 py-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl font-bold text-sm text-zinc-900 dark:text-white focus:outline-none focus:border-emerald-500"
+                          className="w-full px-4 py-3 bg-white dark:bg-zinc-900 border-2 border-zinc-300 dark:border-zinc-700 focus:border-emerald-500 dark:focus:border-emerald-500 rounded-xl font-bold text-sm text-zinc-900 dark:text-white focus:outline-none transition-all"
                         />
                       </div>
 
@@ -1433,21 +1714,48 @@ export default function GoalsManager({
                         {lang === 'bn' ? 'কোন কিস্তি বা জমার রেকর্ড পাওয়া যায়নি' : 'No payments logged yet'}
                       </div>
                     ) : (
-                      [...selectedGoal.contributions].reverse().map((c, index) => (
-                        <div key={index} className="p-3 flex items-center justify-between gap-4 text-xs">
-                          <div className="min-w-0">
-                            <div className="font-extrabold text-zinc-800 dark:text-zinc-200 truncate">
-                              {c.note || (lang === 'bn' ? 'কিস্তি জমা' : 'Installment Added')}
+                      [...selectedGoal.contributions].reverse().map((c, index) => {
+                        const contribKey = c.id || c.date || index;
+                        return (
+                          <div key={contribKey} className="p-3 sm:py-3 sm:px-3.5 flex items-center justify-between gap-3 text-xs hover:bg-zinc-100/50 dark:hover:bg-zinc-900/50 transition-colors">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-extrabold text-zinc-800 dark:text-zinc-200 truncate text-xs sm:text-sm">
+                                {c.note || (lang === 'bn' ? 'কিস্তি জমা' : 'Installment Added')}
+                              </div>
+                              <div className="text-[11px] text-zinc-400 font-semibold mt-0.5">
+                                {new Date(c.date).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{' • '}{new Date(c.date).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                              </div>
                             </div>
-                            <div className="text-[10px] text-zinc-400 font-bold mt-0.5">
-                              {new Date(c.date).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}{' • '}{new Date(c.date).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                            <div className="flex items-center gap-2.5 shrink-0">
+                              <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm sm:text-base">
+                                + ৳{formatNumber(c.amount, lang)}
+                              </span>
+                              <div className="flex items-center gap-1 pl-2 border-l border-zinc-200 dark:border-zinc-800">
+                                {editGoalContribution && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditContributionModal(c)}
+                                    className="p-2 text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+                                    title={lang === 'bn' ? 'জমা সম্পাদনা করুন' : 'Edit Contribution'}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                )}
+                                {deleteGoalContribution && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openDeleteContributionModal(c)}
+                                    className="p-2 text-zinc-400 hover:text-[#e0385e] dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors cursor-pointer"
+                                    title={lang === 'bn' ? 'জমা মুছে ফেলুন' : 'Delete Contribution'}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
-                          <span className="font-black text-emerald-600 dark:text-emerald-400 shrink-0 text-sm">
-                            + ৳{formatNumber(c.amount, lang)}
-                          </span>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -1458,10 +1766,7 @@ export default function GoalsManager({
                 <div className="flex justify-center pt-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      triggerHaptic('single');
-                      setShowCancelConfirm(true);
-                    }}
+                    onClick={openCancelGoalConfirm}
                     className="text-xs font-extrabold text-[#e0385e] hover:underline cursor-pointer"
                   >
                     {lang === 'bn' ? 'লক্ষ্যটি বাতিল করুন' : 'Cancel this Goal'}
@@ -1471,10 +1776,7 @@ export default function GoalsManager({
                 <div className="flex justify-center pt-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      triggerHaptic('single');
-                      setShowReactivateConfirm(true);
-                    }}
+                    onClick={openReactivateGoalConfirm}
                     className="text-xs font-extrabold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline flex items-center gap-1.5"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
@@ -1491,7 +1793,7 @@ export default function GoalsManager({
       {showReactivateConfirm && selectedGoal && (
         <div 
           className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-[2px] animate-in fade-in duration-150"
-          onClick={() => setShowReactivateConfirm(false)}
+          onClick={closeReactivateGoalConfirm}
         >
           <motion.div
             onClick={(e) => e.stopPropagation()}
@@ -1546,7 +1848,7 @@ export default function GoalsManager({
                   triggerHaptic('double');
                   await updateGoalStatus(selectedGoal.id, 'active');
                   setSelectedGoal(prev => prev ? { ...prev, status: 'active' } : null);
-                  setShowReactivateConfirm(false);
+                  closeReactivateGoalConfirm();
                   toast.success(lang === 'bn' ? 'লক্ষ্যটি সফলভাবে পুনরায় চালু করা হয়েছে' : 'Goal reactivated successfully');
                 }}
                 className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl cursor-pointer transition-colors"
@@ -1555,7 +1857,7 @@ export default function GoalsManager({
               </button>
               <button
                 type="button"
-                onClick={() => setShowReactivateConfirm(false)}
+                onClick={closeReactivateGoalConfirm}
                 className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer transition-colors"
               >
                 {lang === 'bn' ? 'বাতিল' : 'Cancel'}
@@ -1569,7 +1871,7 @@ export default function GoalsManager({
       {showCancelConfirm && selectedGoal && (
         <div 
           className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-[2px] animate-in fade-in duration-150"
-          onClick={() => setShowCancelConfirm(false)}
+          onClick={closeCancelGoalConfirm}
         >
           <motion.div
             onClick={(e) => e.stopPropagation()}
@@ -1623,8 +1925,8 @@ export default function GoalsManager({
                 onClick={async () => {
                   triggerHaptic('double');
                   await updateGoalStatus(selectedGoal.id, 'cancelled');
-                  setShowCancelConfirm(false);
-                  setSelectedGoal(null);
+                  closeCancelGoalConfirm();
+                  closeGoalDetail();
                   toast.success(lang === 'bn' ? 'লক্ষ্যটি বাতিল করা হয়েছে' : 'Goal cancelled');
                 }}
                 className="w-full py-4 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl cursor-pointer transition-colors"
@@ -1633,7 +1935,7 @@ export default function GoalsManager({
               </button>
               <button
                 type="button"
-                onClick={() => setShowCancelConfirm(false)}
+                onClick={closeCancelGoalConfirm}
                 className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer transition-colors"
               >
                 {lang === 'bn' ? 'না, ফেরত যান' : 'No, Go Back'}
@@ -1647,7 +1949,7 @@ export default function GoalsManager({
       {showDeleteConfirm && selectedGoal && (
         <div 
           className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-[2px] animate-in fade-in duration-150"
-          onClick={() => setShowDeleteConfirm(false)}
+          onClick={closeDeleteGoalConfirm}
         >
           <motion.div
             onClick={(e) => e.stopPropagation()}
@@ -1701,8 +2003,8 @@ export default function GoalsManager({
                 onClick={async () => {
                   triggerHaptic('double');
                   await deleteGoal(selectedGoal.id);
-                  setShowDeleteConfirm(false);
-                  setSelectedGoal(null);
+                  closeDeleteGoalConfirm();
+                  closeGoalDetail();
                   toast.success(lang === 'bn' ? 'লক্ষ্যটি মুছে ফেলা হয়েছে' : 'Goal deleted successfully');
                 }}
                 className="w-full py-4 bg-[#e0385e] hover:bg-[#c92a4f] text-white font-bold rounded-xl cursor-pointer transition-colors"
@@ -1711,7 +2013,7 @@ export default function GoalsManager({
               </button>
               <button
                 type="button"
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={closeDeleteGoalConfirm}
                 className="w-full py-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-300 font-bold rounded-xl cursor-pointer transition-colors"
               >
                 {lang === 'bn' ? 'বাতিল' : 'Cancel'}
@@ -1723,10 +2025,14 @@ export default function GoalsManager({
 
       {/* ── EMI NOTIFICATION REMINDER MODAL ── */}
       {emiReminderGoal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-select overflow-hidden">
-          <div className="absolute inset-0" onClick={() => setEmiReminderGoal(null)} />
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 no-select overflow-hidden"
+          onClick={closeEmiReminderModal}
+        >
+          <div className="absolute inset-0" onClick={closeEmiReminderModal} />
 
           <motion.div
+            onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
@@ -1734,21 +2040,16 @@ export default function GoalsManager({
           >
             {/* Header */}
             <div className="p-5 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-xl">
-                  <BellRing className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-black text-zinc-900 dark:text-white leading-tight">
-                    {lang === 'bn' ? 'কিস্তি রিমাইন্ডার' : 'Monthly EMI Reminder'}
-                  </h3>
-                  <p className="text-xs text-zinc-450 dark:text-zinc-500 font-semibold truncate max-w-[220px]">
-                    {emiReminderGoal.title}
-                  </p>
-                </div>
+              <div>
+                <h3 className="text-lg font-black text-zinc-900 dark:text-white leading-tight">
+                  {lang === 'bn' ? 'কিস্তি রিমাইন্ডার' : 'Monthly EMI Reminder'}
+                </h3>
+                <p className="text-xs text-zinc-450 dark:text-zinc-500 font-semibold truncate max-w-[240px] mt-0.5">
+                  {emiReminderGoal.title}
+                </p>
               </div>
               <button
-                onClick={() => setEmiReminderGoal(null)}
+                onClick={closeEmiReminderModal}
                 className="p-2.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 rounded-full text-zinc-500 dark:text-zinc-400 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -1865,12 +2166,268 @@ export default function GoalsManager({
 
               <button
                 type="button"
-                onClick={() => setEmiReminderGoal(null)}
+                onClick={closeEmiReminderModal}
                 className="w-full py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-sm cursor-pointer transition-colors"
               >
                 {lang === 'bn' ? 'বাতিল' : 'Cancel'}
               </button>
             </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* ── EDIT CONTRIBUTION MODAL ── */}
+      {editingContribution && selectedGoal && (
+        <div 
+          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-[2px] animate-in fade-in duration-150"
+          onClick={closeEditContributionModal}
+        >
+          <motion.div
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white dark:bg-zinc-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 relative"
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800 mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-950/40 rounded-xl flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                  <Pencil className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-zinc-900 dark:text-white">
+                    {lang === 'bn' ? 'জমার বিবরণ সম্পাদনা' : 'Edit Contribution'}
+                  </h3>
+                  <p className="text-[11px] font-bold text-zinc-400 truncate max-w-[200px]">
+                    {selectedGoal.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditContributionModal}
+                className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditContribution} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block mb-1.5">
+                  {lang === 'bn' ? 'জমার পরিমাণ (৳)' : 'Deposit Amount (৳)'} *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editContribAmount}
+                  onChange={(e) => handleAmountChange(e.target.value, setEditContribAmount)}
+                  placeholder="0.00"
+                  className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border-2 border-zinc-300 dark:border-zinc-700 focus:border-emerald-500 dark:focus:border-emerald-500 rounded-xl text-zinc-900 dark:text-zinc-100 text-lg font-black focus:outline-none transition-all"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block mb-1.5">
+                  {lang === 'bn' ? 'বিবরণ / নোট' : 'Note / Description'}
+                </label>
+                <input
+                  type="text"
+                  value={editContribNote}
+                  onChange={(e) => setEditContribNote(e.target.value)}
+                  placeholder={lang === 'bn' ? 'যেমন: ১ম কিস্তি' : 'e.g. 1st installment'}
+                  className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border-2 border-zinc-300 dark:border-zinc-700 focus:border-emerald-500 dark:focus:border-emerald-500 rounded-xl text-zinc-900 dark:text-zinc-100 text-sm font-bold focus:outline-none transition-all"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeEditContributionModal}
+                  className="flex-1 py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-sm cursor-pointer transition-colors"
+                >
+                  {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingEditContrib}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-sm shadow-md cursor-pointer transition-colors flex items-center justify-center gap-2"
+                >
+                  {isSavingEditContrib ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      {t.saving}
+                    </span>
+                  ) : (
+                    lang === 'bn' ? 'আপডেট করুন' : 'Update Deposit'
+                  )}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* ── DELETE CONTRIBUTION CONFIRMATION MODAL ── */}
+      {deletingContribution && selectedGoal && (
+        <div 
+          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-[2px] animate-in fade-in duration-150"
+          onClick={closeDeleteContributionModal}
+        >
+          <motion.div
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white dark:bg-zinc-900 w-full sm:max-w-sm rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
+          >
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-8 h-8 text-[#e0385e] dark:text-rose-400" />
+              </div>
+              <h3 className="text-lg font-black text-[#e0385e] dark:text-rose-400 mb-2">
+                {lang === 'bn' ? 'জমা মুছে ফেলুন' : 'Delete Contribution'}
+              </h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {lang === 'bn' 
+                  ? 'আপনি কি নিশ্চিত এই জমার রেকর্ডটি মুছে ফেলতে চান? এটি লক্ষ্যের মোট জমা থেকে বাদ দেওয়া হবে।' 
+                  : 'Are you sure you want to delete this contribution? It will be deducted from your total saved amount.'}
+              </p>
+              
+              {/* Details Card */}
+              <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 text-left space-y-2 mt-4 text-xs">
+                <div className="flex justify-between items-baseline">
+                  <span className="font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'পরিমাণ' : 'Amount'}</span>
+                  <span className="text-sm font-black text-rose-600 dark:text-rose-400">৳ {formatNumber(deletingContribution.amount, lang)}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'বিবরণ' : 'Note'}</span>
+                  <span className="font-bold text-zinc-800 dark:text-zinc-200 truncate max-w-[180px]">
+                    {deletingContribution.note || (lang === 'bn' ? 'কিস্তি জমা' : 'Installment Added')}
+                  </span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="font-bold text-zinc-400 dark:text-zinc-500 uppercase">{lang === 'bn' ? 'তারিখ' : 'Date'}</span>
+                  <span className="font-bold text-zinc-600 dark:text-zinc-400">
+                    {new Date(deletingContribution.date).toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2.5">
+              <button
+                type="button"
+                disabled={isDeletingContrib}
+                onClick={handleConfirmDeleteContribution}
+                className="w-full py-3.5 bg-[#e0385e] hover:bg-[#c92a4f] text-white font-black rounded-xl text-sm shadow-md cursor-pointer transition-colors flex items-center justify-center gap-2"
+              >
+                {isDeletingContrib ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    {lang === 'bn' ? 'মুছে ফেলা হচ্ছে...' : 'Deleting...'}
+                  </span>
+                ) : (
+                  lang === 'bn' ? 'হ্যাঁ, মুছে ফেলুন' : 'Yes, Delete Contribution'
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={closeDeleteContributionModal}
+                className="w-full py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-sm cursor-pointer transition-colors"
+              >
+                {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* ── RENAME GOAL POPUP MODAL (OPENED BY TAPPING GOAL TITLE) ── */}
+      {isEditingGoalTitle && selectedGoal && (
+        <div 
+          className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-[2px] animate-in fade-in duration-150"
+          onClick={closeRenameGoal}
+        >
+          <motion.div
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white dark:bg-zinc-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl p-6 relative"
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800 mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-950/40 rounded-xl flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                  <Pencil className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-zinc-900 dark:text-white">
+                    {lang === 'bn' ? 'লক্ষ্যের শিরোনাম পরিবর্তন' : 'Rename Goal'}
+                  </h3>
+                  <p className="text-[11px] font-bold text-zinc-400 truncate max-w-[200px]">
+                    {selectedGoal.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeRenameGoal}
+                className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveGoalTitle} className="space-y-4">
+              <div>
+                <label className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block mb-1.5">
+                  {lang === 'bn' ? 'নতুন শিরোনাম' : 'Goal Title'} *
+                </label>
+                <input
+                  ref={renameInputRef}
+                  type="text"
+                  required
+                  value={editedGoalTitle}
+                  onChange={(e) => setEditedGoalTitle(e.target.value)}
+                  placeholder={lang === 'bn' ? 'লক্ষ্যের নতুন নাম লিখুন' : 'Enter new goal title'}
+                  className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border-2 border-zinc-300 dark:border-zinc-700 focus:border-emerald-500 dark:focus:border-emerald-500 rounded-xl text-zinc-900 dark:text-zinc-100 text-base font-black focus:outline-none transition-all"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeRenameGoal}
+                  className="flex-1 py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-sm cursor-pointer transition-colors"
+                >
+                  {lang === 'bn' ? 'বাতিল' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingGoalTitle}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-sm shadow-md cursor-pointer transition-colors flex items-center justify-center gap-2"
+                >
+                  {isSavingGoalTitle ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      {t.saving}
+                    </span>
+                  ) : (
+                    lang === 'bn' ? 'সংরক্ষণ করুন' : 'Save Title'
+                  )}
+                </button>
+              </div>
+            </form>
           </motion.div>
         </div>
       )}

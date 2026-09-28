@@ -63,19 +63,59 @@ function drawReceiptSilhouette(
 }
 
 /**
- * Pre-warms Plus Jakarta Sans & Hind Siliguri fonts before drawing on canvas.
+ * Draws Lucide 'corner-down-right' icon on canvas
+ * polyline points="15 10 20 15 15 20", path d="M4 4v7a4 4 0 0 0 4 4h12"
+ */
+function drawCornerDownRight(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size = 9,
+  color = '#9CA3AF'
+) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const s = size / 24;
+
+  // Down and turn right path: M4 4v7a4 4 0 0 0 4 4h12
+  ctx.beginPath();
+  ctx.moveTo(x + 4 * s, y + 4 * s);
+  ctx.lineTo(x + 4 * s, y + 11 * s);
+  ctx.arcTo(x + 4 * s, y + 15 * s, x + 8 * s, y + 15 * s, 4 * s);
+  ctx.lineTo(x + 19 * s, y + 15 * s);
+  ctx.stroke();
+
+  // Arrowhead pointing right: polyline points="15 10 20 15 15 20"
+  ctx.beginPath();
+  ctx.moveTo(x + 14 * s, y + 10 * s);
+  ctx.lineTo(x + 19 * s, y + 15 * s);
+  ctx.lineTo(x + 14 * s, y + 20 * s);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/**
+ * Pre-warms Outfit, Hind Siliguri & Plus Jakarta Sans fonts before drawing on canvas.
  */
 async function ensureReceiptFontsLoaded() {
   if (typeof document !== 'undefined' && document.fonts && typeof document.fonts.load === 'function') {
     try {
       await Promise.race([
         Promise.all([
-          document.fonts.load('14px "Plus Jakarta Sans"'),
-          document.fonts.load('bold 14px "Plus Jakarta Sans"'),
-          document.fonts.load('600 14px "Plus Jakarta Sans"'),
+          document.fonts.load('16px "Outfit"'),
+          document.fonts.load('bold 16px "Outfit"'),
+          document.fonts.load('800 16px "Outfit"'),
           document.fonts.load('14px "Hind Siliguri"'),
           document.fonts.load('bold 14px "Hind Siliguri"'),
-          document.fonts.load('600 14px "Hind Siliguri"')
+          document.fonts.load('600 14px "Hind Siliguri"'),
+          document.fonts.load('14px "Plus Jakarta Sans"'),
+          document.fonts.load('bold 14px "Plus Jakarta Sans"'),
+          document.fonts.load('600 14px "Plus Jakarta Sans"')
         ]),
         new Promise((resolve) => setTimeout(resolve, 600))
       ]);
@@ -181,8 +221,8 @@ export async function generateReceiptPng(
   const contentWidth = width - padX * 2;
   const toothH = 4;
 
-  const fontStack = (size: number, weight: 'normal' | '500' | '600' | 'bold' = 'normal') =>
-    `${weight} ${size}px "Plus Jakarta Sans", "Hind Siliguri", "Noto Sans Bengali", system-ui, -apple-system, sans-serif`;
+  const fontStack = (size: number, weight: 'normal' | '500' | '600' | 'bold' | '800' = 'normal') =>
+    `${weight} ${size}px "Outfit", "Plus Jakarta Sans", "Hind Siliguri", "Noto Sans Bengali", system-ui, -apple-system, sans-serif`;
 
   const getRowHeight = (tx: Transaction) => (tx?.description?.trim() ? 42 : 27);
   const rowsHeight = displayTxs.length > 0 
@@ -238,15 +278,17 @@ export async function generateReceiptPng(
 
   let curY = toothH + 16;
 
-  // 1. BRAND & HEADER
+  // 1. BRAND & HEADER (Clean typography matching main website for both Bangla and English)
+  const brandTitle = lang === 'bn' ? 'চালান ট্র্যাক' : 'CHALLAN TRACK';
   ctx.textAlign = 'center';
   ctx.fillStyle = '#FFFFFF';
   ctx.font = fontStack(16, 'bold');
-  ctx.fillText('CHALLAN TRACK', width / 2, curY + 14);
+  ctx.fillText(brandTitle, width / 2, curY + 14);
 
   ctx.fillStyle = '#9CA3AF';
-  ctx.font = fontStack(9.5, '500');
-  ctx.fillText(lang === 'bn' ? 'লেনদেন রসিদ ও হিসাব' : 'TRANSACTION RECEIPT', width / 2, curY + 31);
+  ctx.font = fontStack(9, '500');
+  const subText = lang === 'bn' ? 'লেনদেন রসিদ ও হিসাব' : 'TRANSACTION RECEIPT';
+  ctx.fillText(subText, width / 2, curY + 31);
 
   curY += 46;
   drawDashedLine(ctx, curY, padX, width - padX);
@@ -386,12 +428,16 @@ export async function generateReceiptPng(
 
       // Sub-line description
       if (hasDesc) {
+        const descText = tx.description!.trim();
+        const truncatedDesc = descText.length > 32 ? descText.slice(0, 30) + '..' : descText;
+
+        // Draw Lucide 'corner-down-right' icon
+        drawCornerDownRight(ctx, padX + 5, curY + 18, 9, '#9CA3AF');
+
         ctx.textAlign = 'left';
         ctx.fillStyle = '#9CA3AF';
         ctx.font = fontStack(8.5, 'normal');
-        const descText = tx.description!.trim();
-        const truncatedDesc = descText.length > 32 ? descText.slice(0, 30) + '..' : descText;
-        ctx.fillText(`↳ ${truncatedDesc}`, padX + 6, curY + 28);
+        ctx.fillText(truncatedDesc, padX + 17, curY + 27);
       }
 
       curY += rowH;
